@@ -22,3 +22,7 @@ target_link_libraries(SimpleVulkanRenderer
 target_precompile_headers(SimpleVulkanRenderer
 	PRIVATE pch.h
 )
+
+target_compile_definitions(SimpleVulkanRenderer
+	PRIVATE $<$<CONFIG:Debug>:SVR_DEBUG>
+)

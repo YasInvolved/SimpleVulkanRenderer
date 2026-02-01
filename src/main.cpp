@@ -1,6 +1,18 @@
 #include <stdexcept>
 #include <span>
 #include <vector>
+#include <array>
+
+static constexpr auto SVR_DEBUG_UTILS_MESSAGE_TYPES =
+VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT |
+VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+
+static constexpr auto SVR_DEBUG_UTILS_MESSAGE_SEVERITY =
+VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
 
 class Application
 {
@@ -72,27 +84,57 @@ private:
 			.apiVersion = VK_API_VERSION_1_3
 		};
 
+		static const VkDebugUtilsMessengerCreateInfoEXT dbgMsgCreateInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+			.pNext = nullptr,
+			.flags = 0,
+			.messageSeverity = SVR_DEBUG_UTILS_MESSAGE_SEVERITY,
+			.messageType = SVR_DEBUG_UTILS_MESSAGE_TYPES,
+			.pfnUserCallback = DebugMessengerCallback,
+			.pUserData = this,
+		};
+
+		uint32_t sdlRequiredExtCount;
+		const char* const* sdlRequirements = SDL_Vulkan_GetInstanceExtensions(&sdlRequiredExtCount);
+		std::vector<const char*> requiredExtensions(sdlRequirements, sdlRequirements + sdlRequiredExtCount);
+
+		#ifdef SVR_DEBUG
+		requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		#endif
+
 		uint32_t propCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &propCount, nullptr);
 		std::vector<VkExtensionProperties> instanceExtensions(propCount);
 		vkEnumerateInstanceExtensionProperties(nullptr, &propCount, instanceExtensions.data());
 
 		fmt::print("Found {} instance properties\n", propCount);
-		for (const auto& prop : instanceExtensions)
+		for (const auto& requiredExtension : requiredExtensions)
 		{
-			fmt::print("\t{} specVer {}\n", prop.extensionName, prop.specVersion);
+			bool found = false;
+			for (const auto& prop : instanceExtensions)
+			{
+				if (strcmp(requiredExtension, prop.extensionName) == 0)
+				{
+					found = true;
+					break;
+				}
+			}
+
+			if (!found)
+				throw std::runtime_error("Failed to create Vulkan Instance. Required extension is missing!");
 		}
 
 		const VkInstanceCreateInfo createInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-			.pNext = nullptr,
+			.pNext = &dbgMsgCreateInfo,
 			.flags = 0,
 			.pApplicationInfo = &appInfo,
 			.enabledLayerCount = 0,
 			.ppEnabledLayerNames = nullptr,
-			.enabledExtensionCount = 0,
-			.ppEnabledExtensionNames = nullptr
+			.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size()),
+			.ppEnabledExtensionNames = requiredExtensions.data()
 		};
 
 		if (vkCreateInstance(&createInfo, nullptr, &m_pInstance))
@@ -125,6 +167,28 @@ private:
 	void render()
 	{
 
+	}
+
+	static VkBool32 DebugMessengerCallback(
+		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+		VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+		void* pUserData)
+	{
+		switch (messageSeverity)
+		{
+		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+			fmt::print(fg(fmt::color::red), "Validation Layer Error: {}\n", pCallbackData->pMessage);
+			break;
+		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+			fmt::print(fg(fmt::color::yellow), "Validation Layer Warning: {}\n", pCallbackData->pMessage);
+			break;
+		default:
+			fmt::print("Validation Layer Message: {}\n", pCallbackData->pMessage);
+			break;
+		}
+
+		return VK_TRUE;
 	}
 };
 
