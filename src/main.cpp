@@ -1,6 +1,5 @@
 #include <stdexcept>
 #include <span>
-#include <iostream>
 #include <vector>
 
 class Application
@@ -45,14 +44,14 @@ private:
 		const char* pdName = SDL_GetDisplayName(primaryId);
 		const auto* pdMode = SDL_GetCurrentDisplayMode(primaryId);
 
-		std::cout << "Primary display detected: \n\tName: " << pdName
-			<< "\n\tResolution: " << pdMode->w << 'x' << pdMode->h
-			<< "\n\tRefresh Rate: " << pdMode->refresh_rate << "hz\n\n";
+		fmt::print("Primary display detected:\n\tName: {}\n\tResolution: {}x{}\n\tRefresh Rate: {}hz\n\n", 
+			pdName, pdMode->w, pdMode->h, pdMode->refresh_rate
+		);
 
 		int windowResW = pdMode->w / 2;
 		int windowResH = pdMode->h / 2;
 
-		std::cout << "Creating a " << windowResW << 'x' << windowResH << " window\n";
+		fmt::print("Creating a {}x{} window on primary display\n", windowResW, windowResH);
 		m_pWindow = SDL_CreateWindow("SimpleVulkanRenderer", windowResW, windowResH, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 		if (m_pWindow == nullptr)
 			throw std::runtime_error("Failed to create window");
@@ -78,10 +77,10 @@ private:
 		std::vector<VkExtensionProperties> instanceExtensions(propCount);
 		vkEnumerateInstanceExtensionProperties(nullptr, &propCount, instanceExtensions.data());
 
-		std::cout << "Found " << propCount << " instance properties:\n";
+		fmt::print("Found {} instance properties\n", propCount);
 		for (const auto& prop : instanceExtensions)
 		{
-			std::cout << "\t" << prop.extensionName << " specVer " << prop.specVersion << "\n";
+			fmt::print("\t{} specVer {}\n", prop.extensionName, prop.specVersion);
 		}
 
 		const VkInstanceCreateInfo createInfo =
@@ -139,7 +138,7 @@ int main(int argc, char** argv)
 	}
 	catch (const std::runtime_error& e)
 	{
-		std::cout << "Error: " << e.what() << "\n";
+		fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "ERROR: {}\n", e.what());
 		return -1;
 	}
 

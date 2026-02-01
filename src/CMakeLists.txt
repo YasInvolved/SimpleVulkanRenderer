@@ -16,7 +16,7 @@ set_target_properties(SDL3-shared PROPERTIES
 )
 
 target_link_libraries(SimpleVulkanRenderer 
-	PRIVATE SDL3::SDL3 volk::volk
+	PRIVATE SDL3::SDL3 volk::volk fmt::fmt
 )
 
 target_precompile_headers(SimpleVulkanRenderer
