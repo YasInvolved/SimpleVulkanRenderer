@@ -1,6 +1,7 @@
 #include <stdexcept>
 #include <span>
 #include <iostream>
+#include <vector>
 
 class Application
 {
@@ -33,6 +34,7 @@ private:
 	void initialize()
 	{
 		initWindow();
+		initVkInstance();
 	}
 
 	void initWindow()
@@ -70,6 +72,17 @@ private:
 			.engineVersion = 0,
 			.apiVersion = VK_API_VERSION_1_3
 		};
+
+		uint32_t propCount = 0;
+		vkEnumerateInstanceExtensionProperties(nullptr, &propCount, nullptr);
+		std::vector<VkExtensionProperties> instanceExtensions(propCount);
+		vkEnumerateInstanceExtensionProperties(nullptr, &propCount, instanceExtensions.data());
+
+		std::cout << "Found " << propCount << " instance properties:\n";
+		for (const auto& prop : instanceExtensions)
+		{
+			std::cout << "\t" << prop.extensionName << " specVer " << prop.specVersion << "\n";
+		}
 
 		const VkInstanceCreateInfo createInfo =
 		{
