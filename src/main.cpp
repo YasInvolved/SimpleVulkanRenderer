@@ -7,11 +7,16 @@ class Application
 private:
 	bool m_isRunning = true;
 	
-	SDL_Window* m_window = nullptr;
+	SDL_Window* m_pWindow = nullptr;
+
+	VkInstance m_pInstance = nullptr;
 
 public:
 	Application() {}
-	~Application() {}
+	~Application() 
+	{
+		cleanup();
+	}
 
 	void run()
 	{
@@ -27,6 +32,11 @@ public:
 private:
 	void initialize()
 	{
+		initWindow();
+	}
+
+	void initWindow()
+	{
 		SDL_Init(SDL_INIT_VIDEO);
 
 		SDL_DisplayID primaryId = SDL_GetPrimaryDisplay();
@@ -41,9 +51,53 @@ private:
 		int windowResH = pdMode->h / 2;
 
 		std::cout << "Creating a " << windowResW << 'x' << windowResH << " window\n";
-		m_window = SDL_CreateWindow("SimpleVulkanRenderer", windowResW, windowResH, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-		if (m_window == nullptr)
+		m_pWindow = SDL_CreateWindow("SimpleVulkanRenderer", windowResW, windowResH, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+		if (m_pWindow == nullptr)
 			throw std::runtime_error("Failed to create window");
+	}
+
+	void initVkInstance()
+	{
+		volkInitialize();
+
+		static constexpr VkApplicationInfo appInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+			.pNext = nullptr,
+			.pApplicationName = "SimpleVulkanRenderer",
+			.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+			.pEngineName = nullptr,
+			.engineVersion = 0,
+			.apiVersion = VK_API_VERSION_1_3
+		};
+
+		const VkInstanceCreateInfo createInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.pApplicationInfo = &appInfo,
+			.enabledLayerCount = 0,
+			.ppEnabledLayerNames = nullptr,
+			.enabledExtensionCount = 0,
+			.ppEnabledExtensionNames = nullptr
+		};
+
+		if (vkCreateInstance(&createInfo, nullptr, &m_pInstance))
+			throw std::runtime_error("Failed to create Vulkan Instance!");
+
+		volkLoadInstance(m_pInstance);
+	}
+
+	void cleanup()
+	{
+		if (m_pInstance != nullptr)
+			vkDestroyInstance(m_pInstance, nullptr);
+
+		if (m_pWindow != nullptr)
+			SDL_DestroyWindow(m_pWindow);
+
+		SDL_Quit();
 	}
 
 	void update()
