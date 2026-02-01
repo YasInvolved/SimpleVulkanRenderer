@@ -21,7 +21,8 @@ private:
 	
 	SDL_Window* m_pWindow = nullptr;
 
-	VkInstance m_pInstance = nullptr;
+	VkInstance m_pInstance = VK_NULL_HANDLE;
+	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 
 public:
 	Application() {}
@@ -46,6 +47,7 @@ private:
 	{
 		initWindow();
 		initVkInstance();
+		selectPhysicalDevice();
 	}
 
 	void initWindow()
@@ -141,6 +143,49 @@ private:
 			throw std::runtime_error("Failed to create Vulkan Instance!");
 
 		volkLoadInstance(m_pInstance);
+	}
+
+	void selectPhysicalDevice()
+	{
+		uint32_t deviceCount;
+		vkEnumeratePhysicalDevices(m_pInstance, &deviceCount, nullptr);
+		if (deviceCount == 0)
+			throw std::runtime_error("No GPUs found");
+
+		std::vector<VkPhysicalDevice> m_devices(deviceCount);
+		vkEnumeratePhysicalDevices(m_pInstance, &deviceCount, m_devices.data());
+
+		// look for discrete GPU, if not found, select the first one
+		for (const auto& physicalDevice : m_devices)
+		{	
+			VkPhysicalDeviceProperties devProps;
+			vkGetPhysicalDeviceProperties(physicalDevice, &devProps);
+
+			uint32_t queueFamCount;
+			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamCount, nullptr);
+			if (queueFamCount == 0)
+				continue;
+
+			std::vector<VkQueueFamilyProperties> queueFamProps(queueFamCount);
+			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamCount, queueFamProps.data());
+
+			// we aren't selecting the index yet
+			bool hasGraphicsFamily = false;
+			for (const auto& props : queueFamProps)
+			{
+				if ((props.queueFlags & VK_QUEUE_GRAPHICS_BIT) == VK_QUEUE_GRAPHICS_BIT)
+				{
+					hasGraphicsFamily = true;
+					break;
+				}
+			}
+
+			if (devProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && hasGraphicsFamily)
+				m_physicalDevice = physicalDevice;
+		}
+
+		if (m_physicalDevice == VK_NULL_HANDLE)
+			throw std::runtime_error("No suitable device for graphics rendering found");
 	}
 
 	void cleanup()
