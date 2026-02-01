@@ -1,0 +1,202 @@
+{
+	"version": 9,
+	"configurePresets": [
+		{
+			"name": "base",
+			"hidden": true,
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/build/${presetName}",
+			"cacheVariables": {
+				"CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+				"CMAKE_CXX_STANDARD": "20",
+				"CMAKE_CXX_STANDARD_REQUIRED": true
+			}
+		},
+		{
+			"name": "windows-base",
+			"hidden": true,
+			"inherits": "base",
+			"generator": "Visual Studio 18 2026",
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Windows"
+			}
+		},
+		{
+			"name": "linux-base",
+			"hidden": true,
+			"inherits": "base",
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Linux"
+			},
+			"cacheVariables": {
+				"CMAKE_CXX_COMPILER": "clang++",
+				"CMAKE_C_COMPILER": "clang"
+			},
+			"vendor": {
+				"microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
+					"hostOS": [ "Linux" ]
+				}
+			}
+		},
+		{
+			"name": "conf-windows-debug",
+			"displayName": "Windows Debug (Visual Studio)",
+			"inherits": "windows-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		},
+		{
+			"name": "conf-windows-release",
+			"displayName": "Windows Optimized Release (Visual Studio)",
+			"inherits": "windows-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Release",
+				"CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+			}
+		},
+		{
+			"name": "conf-linux-debug",
+			"displayName": "Linux Debug (Ninja)",
+			"inherits": "linux-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		},
+		{
+			"name": "conf-linux-release",
+			"displayName": "Linux Optimized Release (Ninja)",
+			"inherits": "linux-base",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Release",
+				"CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+			}
+		}
+	],
+	"buildPresets": [
+		{
+			"name": "windows-debug",
+			"displayName": "Windows Debug (Ninja)",
+			"inheritConfigureEnvironment": true,
+			"configurePreset": "conf-windows-debug",
+			"configuration": "Debug"
+		},
+		{
+			"name": "windows-release",
+			"displayName": "Windows Optimized Release (Ninja)",
+			"inheritConfigureEnvironment": true,
+			"configurePreset": "conf-windows-release",
+			"configuration": "Release"
+		},
+		{
+			"name": "linux-debug",
+			"displayName": "Linux Debug (Ninja)",
+			"inheritConfigureEnvironment": true,
+			"configurePreset": "conf-linux-debug",
+			"configuration": "Debug"
+		},
+		{
+			"name": "linux-release",
+			"displayName": "Linux Optimized Release (Ninja)",
+			"inheritConfigureEnvironment": true,
+			"configurePreset": "conf-linux-release",
+			"configuration": "Release"
+		}
+	],
+	"testPresets": [
+		{
+			"name": "test-windows-debug",
+			"configurePreset": "conf-windows-debug"
+		},
+		{
+			"name": "test-windows-release",
+			"configurePreset": "conf-windows-release"
+		},
+		{
+			"name": "test-linux-debug",
+			"configurePreset": "conf-linux-debug"
+		},
+		{
+			"name": "test-linux-release",
+			"configurePreset": "conf-linux-release"
+		}
+	],
+	"workflowPresets": [
+		{
+			"name": "workflow-windows-debug",
+			"displayName": "Windows Debug Development Loop (Config -> Build -> Test)",
+			"steps": [
+				{
+					"type": "configure",
+					"name": "conf-windows-debug"
+				},
+				{
+					"type": "build",
+					"name": "windows-debug"
+				},
+				{
+					"type": "test",
+					"name": "test-windows-debug"
+				}
+			]
+		},
+		{
+			"name": "workflow-windows-release",
+			"displayName": "Windows Release Development Loop (Config -> Build -> Test)",
+			"steps": [
+				{
+					"type": "configure",
+					"name": "conf-windows-release"
+				},
+				{
+					"type": "build",
+					"name": "windows-release"
+				},
+				{
+					"type": "test",
+					"name": "test-windows-release"
+				}
+			]
+		},
+		{
+			"name": "workflow-linux-debug",
+			"displayName": "Linux Debug Development Loop (Config -> Build -> Test)",
+			"steps": [
+				{
+					"type": "configure",
+					"name": "conf-linux-debug"
+				},
+				{
+					"type": "build",
+					"name": "linux-debug"
+				},
+				{
+					"type": "test",
+					"name": "test-linux-debug"
+				}
+			]
+		},
+		{
+			"name": "workflow-linux-release",
+			"displayName": "Linux Release Development Loop (Config -> Build -> Test)",
+			"steps": [
+				{
+					"type": "configure",
+					"name": "conf-linux-release"
+				},
+				{
+					"type": "build",
+					"name": "linux-release"
+				},
+				{
+					"type": "test",
+					"name": "test-linux-release"
+				}
+			]
+		}
+	]
+}
