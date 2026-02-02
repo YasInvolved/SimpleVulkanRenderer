@@ -145,6 +145,27 @@ private:
 		volkLoadInstance(m_pInstance);
 	}
 
+	VkPhysicalDeviceProperties getPhysicalDeviceProperties(VkPhysicalDevice physDev)
+	{
+		VkPhysicalDeviceProperties devProps;
+		vkGetPhysicalDeviceProperties(physDev, &devProps);
+		return devProps;
+	}
+
+	std::vector<VkQueueFamilyProperties> getPhysicalDeviceQueueFamilies(VkPhysicalDevice physDev)
+	{
+		uint32_t qfCount = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(physDev, &qfCount, nullptr);
+
+		if (qfCount == 0)
+			throw std::runtime_error("Vulkan API returned 0 queue families");
+
+		std::vector<VkQueueFamilyProperties> qfProps(qfCount);
+		vkGetPhysicalDeviceQueueFamilyProperties(physDev, &qfCount, qfProps.data());
+
+		return qfProps;
+	}
+
 	void selectPhysicalDevice()
 	{
 		uint32_t deviceCount;
@@ -158,20 +179,12 @@ private:
 		// look for discrete GPU, if not found, select the first one
 		for (const auto& physicalDevice : m_devices)
 		{	
-			VkPhysicalDeviceProperties devProps;
-			vkGetPhysicalDeviceProperties(physicalDevice, &devProps);
-
-			uint32_t queueFamCount;
-			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamCount, nullptr);
-			if (queueFamCount == 0)
-				continue;
-
-			std::vector<VkQueueFamilyProperties> queueFamProps(queueFamCount);
-			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamCount, queueFamProps.data());
+			auto devProps = getPhysicalDeviceProperties(physicalDevice);
+			auto qfProps = getPhysicalDeviceQueueFamilies(physicalDevice);
 
 			// we aren't selecting the index yet
 			bool hasGraphicsFamily = false;
-			for (const auto& props : queueFamProps)
+			for (const auto& props : qfProps)
 			{
 				if ((props.queueFlags & VK_QUEUE_GRAPHICS_BIT) == VK_QUEUE_GRAPHICS_BIT)
 				{
