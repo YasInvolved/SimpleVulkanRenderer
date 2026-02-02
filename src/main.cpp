@@ -3,6 +3,8 @@
 #include <vector>
 #include <array>
 
+#define BITFIELD_TRUE(x, y) (x & y) == y
+
 static constexpr auto SVR_DEBUG_UTILS_MESSAGE_TYPES =
 VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT |
@@ -22,7 +24,12 @@ private:
 	SDL_Window* m_pWindow = nullptr;
 
 	VkInstance m_pInstance = VK_NULL_HANDLE;
+
+	// debug
+	VkDebugUtilsMessengerEXT m_debugMsger = VK_NULL_HANDLE;
+
 	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+	VkDevice m_device = VK_NULL_HANDLE;
 
 public:
 	Application() {}
@@ -48,6 +55,7 @@ private:
 		initWindow();
 		initVkInstance();
 		selectPhysicalDevice();
+		initDevice();
 	}
 
 	void initWindow()
@@ -139,20 +147,34 @@ private:
 			.ppEnabledExtensionNames = requiredExtensions.data()
 		};
 
-		if (vkCreateInstance(&createInfo, nullptr, &m_pInstance))
+		if (vkCreateInstance(&createInfo, nullptr, &m_pInstance) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create Vulkan Instance!");
 
 		volkLoadInstance(m_pInstance);
+
+#ifdef SVR_DEBUG
+		if (vkCreateDebugUtilsMessengerEXT(m_pInstance, &dbgMsgCreateInfo, nullptr, &m_debugMsger) != VK_SUCCESS)
+			fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, 
+				"WARN: Failed to create a Vulkan Debug Utils Messenger"
+			);
+#endif
 	}
 
-	VkPhysicalDeviceProperties getPhysicalDeviceProperties(VkPhysicalDevice physDev)
+	VkPhysicalDeviceProperties getPhysicalDeviceProperties(VkPhysicalDevice physDev) const noexcept
 	{
 		VkPhysicalDeviceProperties devProps;
 		vkGetPhysicalDeviceProperties(physDev, &devProps);
 		return devProps;
 	}
 
-	std::vector<VkQueueFamilyProperties> getPhysicalDeviceQueueFamilies(VkPhysicalDevice physDev)
+	VkPhysicalDeviceFeatures getPhysicalDeviceFeatures(VkPhysicalDevice physDev) const noexcept
+	{
+		VkPhysicalDeviceFeatures devFts;
+		vkGetPhysicalDeviceFeatures(physDev, &devFts);
+		return devFts;
+	}
+
+	std::vector<VkQueueFamilyProperties> getPhysicalDeviceQueueFamilies(VkPhysicalDevice physDev) const
 	{
 		uint32_t qfCount = 0;
 		vkGetPhysicalDeviceQueueFamilyProperties(physDev, &qfCount, nullptr);
@@ -186,7 +208,7 @@ private:
 			bool hasGraphicsFamily = false;
 			for (const auto& props : qfProps)
 			{
-				if ((props.queueFlags & VK_QUEUE_GRAPHICS_BIT) == VK_QUEUE_GRAPHICS_BIT)
+				if (props.queueCount > 0 && BITFIELD_TRUE(props.queueFlags, VK_QUEUE_GRAPHICS_BIT))
 				{
 					hasGraphicsFamily = true;
 					break;
@@ -199,6 +221,66 @@ private:
 
 		if (m_physicalDevice == VK_NULL_HANDLE)
 			throw std::runtime_error("No suitable device for graphics rendering found");
+	}
+
+	void initDevice()
+	{
+		assert(m_physicalDevice != VK_NULL_HANDLE);
+
+		auto devProps = getPhysicalDeviceProperties(m_physicalDevice);
+		auto devFts = getPhysicalDeviceFeatures(m_physicalDevice);
+		auto qfProps = getPhysicalDeviceQueueFamilies(m_physicalDevice);
+
+		uint32_t extPropsCount;
+		vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extPropsCount, nullptr);
+
+		if (extPropsCount == 0)
+			throw std::runtime_error("vkEnumerateDeviceExtensionProperties returned 0 prop count");
+
+		std::vector<VkExtensionProperties> extProps(extPropsCount);
+		if (vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extPropsCount, extProps.data()) != VK_SUCCESS)
+			throw std::runtime_error("vkEnumerateDeviceExtensionProperties failed");
+
+		uint32_t gfxQfIx = 0;
+		for (uint32_t i = 0; i < qfProps.size(); i++)
+		{
+			auto& props = qfProps[i];
+
+			if (props.queueCount > 0 && BITFIELD_TRUE(props.queueFlags, VK_QUEUE_GRAPHICS_BIT))
+			{
+				gfxQfIx = i;
+				break;
+			}
+		}
+
+		static constexpr float gfxQueuePrio = 1.0f;
+
+		const VkDeviceQueueCreateInfo queueCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.queueFamilyIndex = gfxQfIx,
+			.queueCount = 1,
+			.pQueuePriorities = &gfxQueuePrio
+		};
+
+		const VkDeviceCreateInfo createInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.queueCreateInfoCount = 1,
+			.pQueueCreateInfos = &queueCreateInfo,
+			.enabledLayerCount = 0,
+			.ppEnabledLayerNames = nullptr,
+			.enabledExtensionCount = 0,
+			.ppEnabledExtensionNames = nullptr,
+			.pEnabledFeatures = &devFts
+		};
+
+		if (vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create a logical device.");
 	}
 
 	void cleanup()
