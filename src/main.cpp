@@ -37,6 +37,8 @@ private:
 	// surface & swapchain
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 	VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+	std::vector<VkImage> m_swapchainImages;
+	std::vector<VkImageView> m_swapchainImageViews;
 
 public:
 	Application() {}
@@ -433,10 +435,50 @@ private:
 
 		if (vkCreateSwapchainKHR(m_device, &scCreateInfo, nullptr, &m_swapchain) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create a swapchain");
+
+		uint32_t imageCount;
+		vkGetSwapchainImagesKHR(m_device, m_swapchain, &imageCount, nullptr);
+
+		m_swapchainImages.resize(imageCount);
+		m_swapchainImageViews.resize(imageCount);
+		if (vkGetSwapchainImagesKHR(m_device, m_swapchain, &imageCount, m_swapchainImages.data()) != VK_SUCCESS)
+			throw std::runtime_error("Failed to get swapchain images");
+
+		for (uint32_t i = 0; i < imageCount; i++)
+		{
+			const VkImageViewCreateInfo ivCreateInfo
+			{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.pNext = nullptr,
+				.flags = 0,
+				.image = m_swapchainImages[i],
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = format.format,
+				.components = {
+					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.a = VK_COMPONENT_SWIZZLE_IDENTITY
+				},
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1
+				}
+			};
+
+			if (vkCreateImageView(m_device, &ivCreateInfo, nullptr, &m_swapchainImageViews[i]) != VK_SUCCESS)
+				throw std::runtime_error(fmt::format("vkCreateImageView failed for swapchain image {}", i));
+		}
 	}
 
 	void cleanup()
 	{
+		for (const auto& imageView : m_swapchainImageViews)
+			vkDestroyImageView(m_device, imageView, nullptr);
+
 		if (m_swapchain != VK_NULL_HANDLE)
 			vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
 
