@@ -37,12 +37,15 @@ private:
 	// surface & swapchain
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 	VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+	VkSurfaceFormatKHR m_swapchainImgFormat = {};
 	std::vector<VkImage> m_swapchainImages;
 	std::vector<VkImageView> m_swapchainImageViews;
 
 	// command stuff
 	VkCommandPool m_commandPool = VK_NULL_HANDLE;
 	VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
+
+	VkRenderPass m_renderPass = VK_NULL_HANDLE;
 
 public:
 	Application() {}
@@ -71,6 +74,7 @@ private:
 		initDevice();
 		initSwapchain();
 		initCmdPoolAndBuffers();
+		initRenderpass();
 	}
 
 	void initWindow()
@@ -398,13 +402,13 @@ private:
 		if (sfCaps.maxImageCount > 0)
 			minImageCount = std::clamp(minImageCount, sfCaps.minImageCount, sfCaps.maxImageCount);
 
-		VkSurfaceFormatKHR& format = sfFormats[0];
+		m_swapchainImgFormat = sfFormats[0];
 		for (const auto& sfFormat : sfFormats)
 		{
 			if (sfFormat.format == VK_FORMAT_R8G8B8A8_SRGB
 				&& sfFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
 			{
-				format = sfFormat;
+				m_swapchainImgFormat = sfFormat;
 				break;
 			}
 		}
@@ -423,8 +427,8 @@ private:
 			.flags = 0,
 			.surface = m_surface,
 			.minImageCount = minImageCount,
-			.imageFormat = format.format,
-			.imageColorSpace = format.colorSpace,
+			.imageFormat = m_swapchainImgFormat.format,
+			.imageColorSpace = m_swapchainImgFormat.colorSpace,
 			.imageExtent = sfCaps.currentExtent,
 			.imageArrayLayers = 1,
 			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
@@ -458,7 +462,7 @@ private:
 				.flags = 0,
 				.image = m_swapchainImages[i],
 				.viewType = VK_IMAGE_VIEW_TYPE_2D,
-				.format = format.format,
+				.format = m_swapchainImgFormat.format,
 				.components = {
 					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
 					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -520,9 +524,67 @@ private:
 			throw std::runtime_error("Failed to allocate a command buffer");
 	}
 
+	void initRenderpass()
+	{
+		const VkAttachmentDescription attachmentDesc =
+		{
+			.format = m_swapchainImgFormat.format,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+		};
+
+		const VkAttachmentReference colorAttachmentRef =
+		{
+			.attachment = 0,
+			.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		};
+
+		const VkSubpassDescription subpass =
+		{
+			.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &colorAttachmentRef
+		};
+
+		const VkSubpassDependency dep =
+		{
+			.srcSubpass = VK_SUBPASS_EXTERNAL,
+			.dstSubpass = 0,
+			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.srcAccessMask = 0,
+			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+		};
+
+
+		const VkRenderPassCreateInfo rpInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.attachmentCount = 1,
+			.pAttachments = &attachmentDesc,
+			.subpassCount = 1,
+			.pSubpasses = &subpass,
+			.dependencyCount = 1,
+			.pDependencies = &dep
+		};
+
+		if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_renderPass) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create a renderpass");
+	}
+
 	void cleanup()
 	{
 		vkDeviceWaitIdle(m_device);
+
+		if (m_renderPass != VK_NULL_HANDLE)
+			vkDestroyRenderPass(m_device, m_renderPass, nullptr);
 
 		for (const auto& imageView : m_swapchainImageViews)
 			vkDestroyImageView(m_device, imageView, nullptr);
