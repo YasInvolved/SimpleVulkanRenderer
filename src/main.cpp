@@ -2,6 +2,7 @@
 #include <span>
 #include <vector>
 #include <array>
+#include <algorithm>
 
 #define BITFIELD_TRUE(x, y) (x & y) == y
 
@@ -28,8 +29,14 @@ private:
 	// debug
 	VkDebugUtilsMessengerEXT m_debugMsger = VK_NULL_HANDLE;
 
+	// device
+	uint32_t m_gfxQueueIx = 0;
 	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 	VkDevice m_device = VK_NULL_HANDLE;
+
+	// surface & swapchain
+	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+	VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
 
 public:
 	Application() {}
@@ -56,6 +63,7 @@ private:
 		initVkInstance();
 		selectPhysicalDevice();
 		initDevice();
+		initSwapchain();
 	}
 
 	void initWindow()
@@ -266,18 +274,38 @@ private:
 		if (extPropsCount == 0)
 			throw std::runtime_error("vkEnumerateDeviceExtensionProperties returned 0 prop count");
 
+		static constexpr std::array<const char*, 1> requiredExtensions = 
+		{ 
+			"VK_KHR_swapchain" 
+		};
+
 		std::vector<VkExtensionProperties> extProps(extPropsCount);
 		if (vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extPropsCount, extProps.data()) != VK_SUCCESS)
 			throw std::runtime_error("vkEnumerateDeviceExtensionProperties failed");
 
-		uint32_t gfxQfIx = 0;
+		for (const auto& requiredExtension : requiredExtensions)
+		{
+			bool found = false;
+			for (const auto& extProp : extProps)
+			{
+				if (strcmp(extProp.extensionName, requiredExtension) == 0)
+				{
+					found = true;
+					break;
+				}
+			}
+
+			if (!found)
+				throw std::runtime_error("Required device extension wasn't found");
+		}
+
 		for (uint32_t i = 0; i < qfProps.size(); i++)
 		{
 			auto& props = qfProps[i];
 
 			if (props.queueCount > 0 && BITFIELD_TRUE(props.queueFlags, VK_QUEUE_GRAPHICS_BIT))
 			{
-				gfxQfIx = i;
+				m_gfxQueueIx = i;
 				break;
 			}
 		}
@@ -289,7 +317,7 @@ private:
 			.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
 			.pNext = nullptr,
 			.flags = 0,
-			.queueFamilyIndex = gfxQfIx,
+			.queueFamilyIndex = m_gfxQueueIx,
 			.queueCount = 1,
 			.pQueuePriorities = &gfxQueuePrio
 		};
@@ -303,8 +331,8 @@ private:
 			.pQueueCreateInfos = &queueCreateInfo,
 			.enabledLayerCount = 0,
 			.ppEnabledLayerNames = nullptr,
-			.enabledExtensionCount = 0,
-			.ppEnabledExtensionNames = nullptr,
+			.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size()),
+			.ppEnabledExtensionNames = requiredExtensions.data(),
 			.pEnabledFeatures = &devFts
 		};
 
@@ -312,8 +340,109 @@ private:
 			throw std::runtime_error("Failed to create a logical device.");
 	}
 
+	VkSurfaceCapabilitiesKHR getSurfaceCapabilities(VkSurfaceKHR surface) const
+	{
+		assert(m_physicalDevice != VK_NULL_HANDLE);
+
+		VkSurfaceCapabilitiesKHR sc;
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, surface, &sc);
+
+		return sc;
+	}
+
+	std::vector<VkSurfaceFormatKHR> getSurfaceFormats(VkSurfaceKHR surface) const
+	{
+		assert(m_physicalDevice != VK_NULL_HANDLE);
+
+		uint32_t count = 0;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, surface, &count, nullptr);
+
+		std::vector<VkSurfaceFormatKHR> formats(count);
+		if (vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, surface, &count, formats.data()) != VK_SUCCESS)
+			throw std::runtime_error("vkGetPhysicalDeviceSurfaceFormatsKHR failed.");
+
+		return formats;
+	}
+
+	std::vector<VkPresentModeKHR> getSurfacePresentModes(VkSurfaceKHR surface) const
+	{
+		assert(m_physicalDevice != VK_NULL_HANDLE);
+
+		uint32_t count = 0;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, surface, &count, nullptr);
+
+		std::vector<VkPresentModeKHR> pms(count);
+		if (vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, surface, &count, pms.data()) != VK_SUCCESS)
+			throw std::runtime_error("vkGetPhysicalDeviceSurfacePresentModesKHR failed.");
+
+		return pms;
+	}
+
+	void initSwapchain()
+	{
+		if (!SDL_Vulkan_CreateSurface(m_pWindow, m_pInstance, nullptr, &m_surface))
+			throw std::runtime_error("Failed to create a surface");
+
+		auto sfCaps = getSurfaceCapabilities(m_surface);
+		auto sfFormats = getSurfaceFormats(m_surface);
+		auto sfPms = getSurfacePresentModes(m_surface);
+
+		uint32_t minImageCount = 2;
+		if (sfCaps.maxImageCount > 0)
+			minImageCount = std::clamp(minImageCount, sfCaps.minImageCount, sfCaps.maxImageCount);
+
+		VkSurfaceFormatKHR& format = sfFormats[0];
+		for (const auto& sfFormat : sfFormats)
+		{
+			if (sfFormat.format == VK_FORMAT_R8G8B8A8_SRGB
+				&& sfFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+			{
+				format = sfFormat;
+				break;
+			}
+		}
+
+		VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+		for (const auto& pm : sfPms)
+		{
+			if (pm == VK_PRESENT_MODE_MAILBOX_KHR)
+				presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+		}
+
+		const VkSwapchainCreateInfoKHR scCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+			.pNext = nullptr,
+			.flags = 0,
+			.surface = m_surface,
+			.minImageCount = minImageCount,
+			.imageFormat = format.format,
+			.imageColorSpace = format.colorSpace,
+			.imageExtent = sfCaps.currentExtent,
+			.imageArrayLayers = 1,
+			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+			.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIndexCount = 1,
+			.pQueueFamilyIndices = &m_gfxQueueIx,
+			.preTransform = sfCaps.currentTransform,
+			.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+			.presentMode = presentMode,
+			.clipped = VK_FALSE,
+			.oldSwapchain = VK_NULL_HANDLE
+		};
+
+		if (vkCreateSwapchainKHR(m_device, &scCreateInfo, nullptr, &m_swapchain) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create a swapchain");
+	}
+
 	void cleanup()
 	{
+		if (m_swapchain != VK_NULL_HANDLE)
+			vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+
+		if (m_surface != VK_NULL_HANDLE)
+			SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
+
 		if (m_device != VK_NULL_HANDLE)
 			vkDestroyDevice(m_device, nullptr);
 
