@@ -40,6 +40,10 @@ private:
 	std::vector<VkImage> m_swapchainImages;
 	std::vector<VkImageView> m_swapchainImageViews;
 
+	// command stuff
+	VkCommandPool m_commandPool = VK_NULL_HANDLE;
+	VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
+
 public:
 	Application() {}
 	~Application() 
@@ -66,6 +70,7 @@ private:
 		selectPhysicalDevice();
 		initDevice();
 		initSwapchain();
+		initCmdPoolAndBuffers();
 	}
 
 	void initWindow()
@@ -474,8 +479,51 @@ private:
 		}
 	}
 
+	bool beginPrimaryCmdBuf(VkCommandBuffer cmdBuf)
+	{
+		// TODO: Implement for secondary buffers too
+
+		const VkCommandBufferBeginInfo begInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.pNext = nullptr,
+			.pInheritanceInfo = nullptr
+		};
+
+		if (vkBeginCommandBuffer(cmdBuf, &begInfo) != VK_SUCCESS)
+			throw std::runtime_error("vkBeginCommandBuffer failed.");
+	}
+
+	void initCmdPoolAndBuffers()
+	{
+		const VkCommandPoolCreateInfo cmdPoolCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.queueFamilyIndex = m_gfxQueueIx
+		};
+
+		if (vkCreateCommandPool(m_device, &cmdPoolCreateInfo, nullptr, &m_commandPool) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create a command pool");
+
+		const VkCommandBufferAllocateInfo cmdBufAllocInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.pNext = nullptr,
+			.commandPool = m_commandPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1
+		};
+
+		if (vkAllocateCommandBuffers(m_device, &cmdBufAllocInfo, &m_commandBuffer) != VK_SUCCESS)
+			throw std::runtime_error("Failed to allocate a command buffer");
+	}
+
 	void cleanup()
 	{
+		vkDeviceWaitIdle(m_device);
+
 		for (const auto& imageView : m_swapchainImageViews)
 			vkDestroyImageView(m_device, imageView, nullptr);
 
@@ -484,6 +532,12 @@ private:
 
 		if (m_surface != VK_NULL_HANDLE)
 			SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
+
+		if (m_commandBuffer != VK_NULL_HANDLE)
+			vkFreeCommandBuffers(m_device, m_commandPool, 1, &m_commandBuffer);
+
+		if (m_commandPool != VK_NULL_HANDLE)
+			vkDestroyCommandPool(m_device, m_commandPool, nullptr);
 
 		if (m_device != VK_NULL_HANDLE)
 			vkDestroyDevice(m_device, nullptr);
