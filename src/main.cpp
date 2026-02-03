@@ -118,7 +118,7 @@ private:
 		std::vector<VkExtensionProperties> instanceExtensions(propCount);
 		vkEnumerateInstanceExtensionProperties(nullptr, &propCount, instanceExtensions.data());
 
-		fmt::print("Found {} instance properties\n", propCount);
+		fmt::print("Found {} instance extension properties\n", propCount);
 		for (const auto& requiredExtension : requiredExtensions)
 		{
 			bool found = false;
@@ -135,14 +135,43 @@ private:
 				throw std::runtime_error("Failed to create Vulkan Instance. Required extension is missing!");
 		}
 
+		const std::vector<const char*> enabledLayers = 
+		{
+			#ifdef SVR_DEBUG
+			"VK_LAYER_KHRONOS_validation",
+			#endif
+		};
+
+		uint32_t layerCount = 0;
+		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+
+		std::vector<VkLayerProperties> availableLayers(layerCount);
+		vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+		for (const auto& enabledLayer : enabledLayers)
+		{
+			bool found = false;
+			for (const auto& layer : availableLayers)
+			{
+				if (strcmp(layer.layerName, enabledLayer) == 0)
+				{
+					found = true;
+					break;
+				}
+			}
+
+			if (!found)
+				throw std::runtime_error("Failed to create Vulkan Instance. Required layer is missing!");
+		}
+
 		const VkInstanceCreateInfo createInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 			.pNext = &dbgMsgCreateInfo,
 			.flags = 0,
 			.pApplicationInfo = &appInfo,
-			.enabledLayerCount = 0,
-			.ppEnabledLayerNames = nullptr,
+			.enabledLayerCount = static_cast<uint32_t>(enabledLayers.size()),
+			.ppEnabledLayerNames = enabledLayers.data(),
 			.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size()),
 			.ppEnabledExtensionNames = requiredExtensions.data()
 		};
@@ -285,7 +314,13 @@ private:
 
 	void cleanup()
 	{
-		if (m_pInstance != nullptr)
+		if (m_device != VK_NULL_HANDLE)
+			vkDestroyDevice(m_device, nullptr);
+
+		if (m_debugMsger != VK_NULL_HANDLE)
+			vkDestroyDebugUtilsMessengerEXT(m_pInstance, m_debugMsger, nullptr);
+
+		if (m_pInstance != VK_NULL_HANDLE)
 			vkDestroyInstance(m_pInstance, nullptr);
 
 		if (m_pWindow != nullptr)
