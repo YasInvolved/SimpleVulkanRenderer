@@ -572,7 +572,7 @@ private:
 
 	void initRenderpass()
 	{
-		constexpr std::array<VkAttachmentDescription, 2> attachmentDescs =
+		const std::array<VkAttachmentDescription, 2> attachmentDescs =
 		{
 			{
 				{
