@@ -86,6 +86,7 @@ private:
 	VkFormat m_depthStencilFormat = VK_FORMAT_D32_SFLOAT;
 	std::vector<VkImage> m_swapchainImages;
 	std::vector<VkImageView> m_swapchainImageViews;
+	std::vector<VkFramebuffer> m_swapchainFramebuffers;
 
 	VkImage m_depthImage = VK_NULL_HANDLE;
 	VkDeviceMemory m_depthImageMemory = VK_NULL_HANDLE;
@@ -129,6 +130,7 @@ private:
 		initRenderpass();
 		initPipeline();
 		initDeviceMemory();
+		initFramebuffers();
 	}
 
 	void initWindow()
@@ -147,7 +149,7 @@ private:
 		int windowResH = pdMode->h / 2;
 
 		fmt::print("Creating a {}x{} window on primary display\n", windowResW, windowResH);
-		m_pWindow = SDL_CreateWindow("SimpleVulkanRenderer", windowResW, windowResH, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+		m_pWindow = SDL_CreateWindow("SimpleVulkanRenderer", windowResW, windowResH, SDL_WINDOW_VULKAN /* | SDL_WINDOW_RESIZABLE*/);
 		if (m_pWindow == nullptr)
 			throw std::runtime_error("Failed to create window");
 	}
@@ -1003,9 +1005,43 @@ private:
 			throw std::runtime_error("Failed to create image view for depth image");
 	}
 
+	void initFramebuffers()
+	{
+		m_swapchainFramebuffers.resize(m_swapchainImages.size());
+
+		std::array<VkImageView, 2> attachments =
+		{
+			VK_NULL_HANDLE,
+			m_depthImageView
+		};
+
+		const VkFramebufferCreateInfo fbCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+			.renderPass = m_renderPass,
+			.attachmentCount = static_cast<uint32_t>(attachments.size()),
+			.pAttachments = attachments.data(),
+			.width = m_swapchainImgWidth,
+			.height = m_swapchainImgHeight,
+			.layers = 1
+		};
+
+		for (size_t i = 0; i < m_swapchainFramebuffers.size(); i++)
+		{
+			// just swap the handle, save some effort in stack allocations
+			attachments[0] = m_swapchainImageViews[0];
+
+			if (vkCreateFramebuffer(m_device, &fbCreateInfo, nullptr, &m_swapchainFramebuffers[i]) != VK_SUCCESS)
+				throw std::runtime_error(fmt::format("Failed to create a framebuffer {}", i));
+		}
+	}
+
 	void cleanup()
 	{
 		vkDeviceWaitIdle(m_device);
+
+		for (const auto& framebuffer : m_swapchainFramebuffers)
+			vkDestroyFramebuffer(m_device, framebuffer, nullptr);
 
 		vkDestroyImageView(m_device, m_depthImageView, nullptr);
 		vkDestroyImage(m_device, m_depthImage, nullptr);
