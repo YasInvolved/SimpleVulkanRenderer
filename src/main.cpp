@@ -76,7 +76,7 @@ private:
 	uint32_t m_gfxQueueIx = 0;
 	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 	VkDevice m_device = VK_NULL_HANDLE;
-	VkPhysicalDeviceMemoryProperties m_memoryProperties;
+	VkPhysicalDeviceMemoryProperties m_memoryProperties = {};
 
 	// surface & swapchain
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
@@ -1007,51 +1007,25 @@ private:
 	{
 		vkDeviceWaitIdle(m_device);
 
-		if (m_depthImageView != VK_NULL_HANDLE)
-			vkDestroyImageView(m_device, m_depthImageView, nullptr);
-
-		if (m_depthImage != VK_NULL_HANDLE)
-			vkDestroyImage(m_device, m_depthImage, nullptr);
-
-		if (m_depthImageMemory != VK_NULL_HANDLE)
-			vkFreeMemory(m_device, m_depthImageMemory, nullptr);
-
-		if (m_graphicsPipeline != VK_NULL_HANDLE)
-			vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
-
-		if (m_pipelineLayout != VK_NULL_HANDLE)
-			vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-
-		if (m_renderPass != VK_NULL_HANDLE)
-			vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+		vkDestroyImageView(m_device, m_depthImageView, nullptr);
+		vkDestroyImage(m_device, m_depthImage, nullptr);
+		vkFreeMemory(m_device, m_depthImageMemory, nullptr);
+		vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
+		vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
+		vkDestroyRenderPass(m_device, m_renderPass, nullptr);
 
 		for (const auto& imageView : m_swapchainImageViews)
 			vkDestroyImageView(m_device, imageView, nullptr);
 
-		if (m_swapchain != VK_NULL_HANDLE)
-			vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+		vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+		SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
+		vkFreeCommandBuffers(m_device, m_commandPool, 1, &m_commandBuffer);
+		vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+		vkDestroyDevice(m_device, nullptr);
+		vkDestroyDebugUtilsMessengerEXT(m_pInstance, m_debugMsger, nullptr);
+		vkDestroyInstance(m_pInstance, nullptr);
 
-		if (m_surface != VK_NULL_HANDLE)
-			SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
-
-		if (m_commandBuffer != VK_NULL_HANDLE)
-			vkFreeCommandBuffers(m_device, m_commandPool, 1, &m_commandBuffer);
-
-		if (m_commandPool != VK_NULL_HANDLE)
-			vkDestroyCommandPool(m_device, m_commandPool, nullptr);
-
-		if (m_device != VK_NULL_HANDLE)
-			vkDestroyDevice(m_device, nullptr);
-
-		if (m_debugMsger != VK_NULL_HANDLE)
-			vkDestroyDebugUtilsMessengerEXT(m_pInstance, m_debugMsger, nullptr);
-
-		if (m_pInstance != VK_NULL_HANDLE)
-			vkDestroyInstance(m_pInstance, nullptr);
-
-		if (m_pWindow != nullptr)
-			SDL_DestroyWindow(m_pWindow);
-
+		SDL_DestroyWindow(m_pWindow);
 		SDL_Quit();
 	}
 
