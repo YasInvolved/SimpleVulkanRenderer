@@ -81,6 +81,7 @@ private:
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 	VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
 	VkSurfaceFormatKHR m_swapchainImgFormat = {};
+	VkFormat m_depthStencilFormat = VK_FORMAT_D32_SFLOAT;
 	std::vector<VkImage> m_swapchainImages;
 	std::vector<VkImageView> m_swapchainImageViews;
 
@@ -282,6 +283,35 @@ private:
 		return qfProps;
 	}
 
+	VkFormat findSupportedFormat(VkPhysicalDevice physDev, const std::span<const VkFormat> candidates, VkImageTiling tiling, VkFormatFeatureFlags features) const
+	{
+		assert(physDev != VK_NULL_HANDLE);
+
+		for (VkFormat format : candidates)
+		{
+			VkFormatProperties props;
+			vkGetPhysicalDeviceFormatProperties(physDev, format, &props);
+
+			if (tiling == VK_IMAGE_TILING_LINEAR && BITFIELD_TRUE(props.linearTilingFeatures, features))
+				return format;
+			else if (tiling == VK_IMAGE_TILING_OPTIMAL && BITFIELD_TRUE(props.optimalTilingFeatures, features))
+				return format;
+		}
+
+		throw std::runtime_error("Failed to find supported format!");
+	}
+
+	VkFormat selectDepthFormat(VkPhysicalDevice physDev) const
+	{
+		static constexpr std::array<VkFormat, 3> FORMATS =
+		{
+			VK_FORMAT_D32_SFLOAT,
+			VK_FORMAT_D32_SFLOAT_S8_UINT,
+			VK_FORMAT_D24_UNORM_S8_UINT
+		};
+
+		return findSupportedFormat(physDev, FORMATS, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+	}
 	void selectPhysicalDevice()
 	{
 		uint32_t deviceCount;
@@ -324,6 +354,7 @@ private:
 		auto devProps = getPhysicalDeviceProperties(m_physicalDevice);
 		auto devFts = getPhysicalDeviceFeatures(m_physicalDevice);
 		auto qfProps = getPhysicalDeviceQueueFamilies(m_physicalDevice);
+		m_depthStencilFormat = selectDepthFormat(m_physicalDevice);
 
 		uint32_t extPropsCount;
 		vkEnumerateDeviceExtensionProperties(m_physicalDevice, nullptr, &extPropsCount, nullptr);
@@ -586,7 +617,7 @@ private:
 					.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 				},
 				{
-					.format = VK_FORMAT_D32_SFLOAT,
+					.format = m_depthStencilFormat,
 					.samples = VK_SAMPLE_COUNT_1_BIT,
 					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 					.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -647,7 +678,7 @@ private:
 			throw std::runtime_error("Failed to create a renderpass");
 	}
 
-	VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode)
+	VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode) const
 	{
 		assert(m_device != VK_NULL_HANDLE);
 
