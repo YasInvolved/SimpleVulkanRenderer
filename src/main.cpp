@@ -23,7 +23,7 @@ class Application
 {
 private:
 	bool m_isRunning = true;
-	
+
 	SDL_Window* m_pWindow = nullptr;
 
 	VkInstance m_pInstance = VK_NULL_HANDLE;
@@ -51,7 +51,7 @@ private:
 
 public:
 	Application() {}
-	~Application() 
+	~Application()
 	{
 		cleanup();
 	}
@@ -77,6 +77,7 @@ private:
 		initSwapchain();
 		initCmdPoolAndBuffers();
 		initRenderpass();
+		initPipeline();
 	}
 
 	void initWindow()
@@ -87,7 +88,7 @@ private:
 		const char* pdName = SDL_GetDisplayName(primaryId);
 		const auto* pdMode = SDL_GetCurrentDisplayMode(primaryId);
 
-		fmt::print("Primary display detected:\n\tName: {}\n\tResolution: {}x{}\n\tRefresh Rate: {}hz\n\n", 
+		fmt::print("Primary display detected:\n\tName: {}\n\tResolution: {}x{}\n\tRefresh Rate: {}hz\n\n",
 			pdName, pdMode->w, pdMode->h, pdMode->refresh_rate
 		);
 
@@ -130,9 +131,9 @@ private:
 		const char* const* sdlRequirements = SDL_Vulkan_GetInstanceExtensions(&sdlRequiredExtCount);
 		std::vector<const char*> requiredExtensions(sdlRequirements, sdlRequirements + sdlRequiredExtCount);
 
-		#ifdef SVR_DEBUG
+#ifdef SVR_DEBUG
 		requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-		#endif
+#endif
 
 		uint32_t propCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &propCount, nullptr);
@@ -156,7 +157,7 @@ private:
 				throw std::runtime_error("Failed to create Vulkan Instance. Required extension is missing!");
 		}
 
-		const std::vector<const char*> enabledLayers = 
+		const std::vector<const char*> enabledLayers =
 		{
 			#ifdef SVR_DEBUG
 			"VK_LAYER_KHRONOS_validation",
@@ -204,7 +205,7 @@ private:
 
 #ifdef SVR_DEBUG
 		if (vkCreateDebugUtilsMessengerEXT(m_pInstance, &dbgMsgCreateInfo, nullptr, &m_debugMsger) != VK_SUCCESS)
-			fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, 
+			fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold,
 				"WARN: Failed to create a Vulkan Debug Utils Messenger"
 			);
 #endif
@@ -250,7 +251,7 @@ private:
 
 		// look for discrete GPU, if not found, select the first one
 		for (const auto& physicalDevice : m_devices)
-		{	
+		{
 			auto devProps = getPhysicalDeviceProperties(physicalDevice);
 			auto qfProps = getPhysicalDeviceQueueFamilies(physicalDevice);
 
@@ -287,9 +288,9 @@ private:
 		if (extPropsCount == 0)
 			throw std::runtime_error("vkEnumerateDeviceExtensionProperties returned 0 prop count");
 
-		static constexpr std::array<const char*, 1> requiredExtensions = 
-		{ 
-			"VK_KHR_swapchain" 
+		static constexpr std::array<const char*, 1> requiredExtensions =
+		{
+			"VK_KHR_swapchain"
 		};
 
 		std::vector<VkExtensionProperties> extProps(extPropsCount);
@@ -579,6 +580,32 @@ private:
 
 		if (vkCreateRenderPass(m_device, &rpInfo, nullptr, &m_renderPass) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create a renderpass");
+	}
+
+	VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode)
+	{
+		assert(m_device != VK_NULL_HANDLE);
+
+		const VkShaderModuleCreateInfo createInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.codeSize = codeSize,
+			.pCode = pCode
+		};
+
+		VkShaderModule module;
+		if (vkCreateShaderModule(m_device, &createInfo, nullptr, &module) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create a shader module");
+
+		return module;
+	}
+
+	void initPipeline()
+	{
+		VkShaderModule vertexShaderModule = createShaderModule(shaders::vert_code_size, (const uint32_t*)shaders::vert_code_start);
+		VkShaderModule fragmentShaderModule = createShaderModule(shaders::frag_code_size, (const uint32_t*)shaders::frag_code_start);
 	}
 
 	void cleanup()

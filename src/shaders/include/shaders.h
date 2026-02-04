@@ -10,11 +10,11 @@ extern "C" char frag_spv_end;
 
 namespace shaders
 {
-	const uint32_t* vert_code_start = reinterpret_cast<const uint32_t*>(&vert_spv_start);
-	const uint32_t* vert_code_end = reinterpret_cast<const uint32_t*>(&vert_spv_end);
-	const size_t vert_code_size = (vert_code_end - vert_code_start) * sizeof(uint32_t);
+	const char* vert_code_start = &vert_spv_start;
+	const char* vert_code_end = &vert_spv_end;
+	const size_t vert_code_size = vert_code_end - vert_code_start;
 
-	const uint32_t* frag_code_start = reinterpret_cast<const uint32_t*>(&frag_spv_start);
-	const uint32_t* frag_code_end = reinterpret_cast<const uint32_t*>(&frag_spv_end);
-	const size_t frag_code_size = (frag_spv_end - frag_spv_start) * sizeof(uint32_t);
+	const char* frag_code_start = &frag_spv_start;
+	const char* frag_code_end = &frag_spv_end;
+	const size_t frag_code_size = frag_code_end - frag_code_start;
 }

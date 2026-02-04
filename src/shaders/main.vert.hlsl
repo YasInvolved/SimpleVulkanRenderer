@@ -1,13 +1,13 @@
 struct PushConstants
 {
-    matrix MVP;
+    row_major matrix mvp;
 };
 
-[[vk::push_constant]] ConstantBuffer<PushConstants> pushConst;
+[[vk::push_constant]] ConstantBuffer<PushConstants> pushConsts;
 
 struct VSInput
 {
-    float3 position : POSITION;
+    float3 pos : POSITION;
     float3 color : COLOR;
 };
 
@@ -20,10 +20,8 @@ struct VSOutput
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    
-    float4 pos4 = float4(input.position, 1.0f);
-    
-    output.pos = mul(pushConst.MVP, pos4);
+    float4 pos4 = float4(input.pos, 1.0f);
+    output.pos = mul(pushConsts.mvp, pos4);
     output.color = input.color;
     
     return output;

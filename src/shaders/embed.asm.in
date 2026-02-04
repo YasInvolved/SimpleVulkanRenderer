@@ -3,15 +3,17 @@ section .data
 global vert_spv_start
 global vert_spv_end
 
+align 4
+
 vert_spv_start:
 	incbin "@VERT_BIN@"
-	align 4
 vert_spv_end:
 
 global frag_spv_start
 global frag_spv_end
 
+align 4
+
 frag_spv_start:
 	incbin "@FRAG_BIN@"
-	align 4
 frag_spv_end:
