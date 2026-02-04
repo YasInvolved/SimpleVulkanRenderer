@@ -76,14 +76,20 @@ private:
 	uint32_t m_gfxQueueIx = 0;
 	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 	VkDevice m_device = VK_NULL_HANDLE;
+	VkPhysicalDeviceMemoryProperties m_memoryProperties;
 
 	// surface & swapchain
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 	VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+	uint32_t m_swapchainImgWidth = 0, m_swapchainImgHeight = 0;
 	VkSurfaceFormatKHR m_swapchainImgFormat = {};
 	VkFormat m_depthStencilFormat = VK_FORMAT_D32_SFLOAT;
 	std::vector<VkImage> m_swapchainImages;
 	std::vector<VkImageView> m_swapchainImageViews;
+
+	VkImage m_depthImage = VK_NULL_HANDLE;
+	VkDeviceMemory m_depthImageMemory = VK_NULL_HANDLE;
+	VkImageView m_depthImageView = VK_NULL_HANDLE;
 
 	// command stuff
 	VkCommandPool m_commandPool = VK_NULL_HANDLE;
@@ -122,6 +128,7 @@ private:
 		initCmdPoolAndBuffers();
 		initRenderpass();
 		initPipeline();
+		initDeviceMemory();
 	}
 
 	void initWindow()
@@ -522,6 +529,9 @@ private:
 		if (vkCreateSwapchainKHR(m_device, &scCreateInfo, nullptr, &m_swapchain) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create a swapchain");
 
+		m_swapchainImgWidth = scCreateInfo.imageExtent.width;
+		m_swapchainImgHeight = scCreateInfo.imageExtent.height;
+
 		uint32_t imageCount;
 		vkGetSwapchainImagesKHR(m_device, m_swapchain, &imageCount, nullptr);
 
@@ -905,9 +915,100 @@ private:
 		vkDestroyShaderModule(m_device, fragmentShaderModule, nullptr);
 	}
 
+	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const
+	{
+		for (uint32_t i = 0; i < m_memoryProperties.memoryTypeCount; i++)
+		{
+			if (typeFilter & (1 << i) &&
+				BITFIELD_TRUE(m_memoryProperties.memoryTypes[i].propertyFlags, properties))
+			{
+				return i;
+			}
+		}
+
+		throw std::runtime_error("Failed to find suitable memory type");
+	}
+
+	void initDeviceMemory()
+	{
+		assert(m_physicalDevice != VK_NULL_HANDLE);
+		vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &m_memoryProperties);
+
+		const VkImageCreateInfo diCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.imageType = VK_IMAGE_TYPE_2D,
+			.format = m_depthStencilFormat,
+			.extent =
+			{
+				.width = m_swapchainImgWidth,
+				.height = m_swapchainImgHeight,
+				.depth = 1u
+			},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.tiling = VK_IMAGE_TILING_OPTIMAL,
+			.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIndexCount = 1,
+			.pQueueFamilyIndices = &m_gfxQueueIx,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+		};
+
+		if (vkCreateImage(m_device, &diCreateInfo, nullptr, &m_depthImage) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create depth image");
+
+		VkMemoryRequirements diMemRequirements;
+		vkGetImageMemoryRequirements(m_device, m_depthImage, &diMemRequirements);
+
+		const VkMemoryAllocateInfo allocInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.pNext = nullptr,
+			.allocationSize = diMemRequirements.size,
+			.memoryTypeIndex = findMemoryType(
+				diMemRequirements.memoryTypeBits,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+			),
+		};
+
+		if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_depthImageMemory) != VK_SUCCESS)
+			throw std::runtime_error("Failed to allocate memory for depth image");
+
+		if (vkBindImageMemory(m_device, m_depthImage, m_depthImageMemory, 0) != VK_SUCCESS)
+			throw std::runtime_error("Failed to bind memory for depth image");
+
+		const VkImageViewCreateInfo diViewCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.image = m_depthImage,
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format = m_depthStencilFormat,
+			.subresourceRange =
+			{
+				.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1
+			}
+		};
+
+		if (vkCreateImageView(m_device, &diViewCreateInfo, nullptr, &m_depthImageView) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create image view for depth image");
+	}
+
 	void cleanup()
 	{
 		vkDeviceWaitIdle(m_device);
+
+		if (m_depthImage != VK_NULL_HANDLE)
+			vkDestroyImage(m_device, m_depthImage, nullptr);
 
 		if (m_graphicsPipeline != VK_NULL_HANDLE)
 			vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
