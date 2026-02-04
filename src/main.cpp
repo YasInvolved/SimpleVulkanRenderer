@@ -4,6 +4,8 @@
 #include <array>
 #include <algorithm>
 
+#include <shaders.h>
+
 #define BITFIELD_TRUE(x, y) (x & y) == y
 
 static constexpr auto SVR_DEBUG_UTILS_MESSAGE_TYPES =
@@ -657,6 +659,8 @@ private:
 int main(int argc, char** argv)
 {
 	Application app;
+
+	fmt::print("Vertex shader size: {}\nFragment shader size: {}\n", shaders::vert_code_size, shaders::frag_code_size);
 
 	try
 	{

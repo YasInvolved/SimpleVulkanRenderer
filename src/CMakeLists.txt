@@ -1,5 +1,7 @@
 set(OUT_DIR ${CMAKE_BINARY_DIR}/bin)
 
+add_subdirectory(shaders)
+
 add_executable(SimpleVulkanRenderer main.cpp "pch.h")
 
 set_target_properties(SimpleVulkanRenderer PROPERTIES
@@ -16,7 +18,7 @@ set_target_properties(SDL3-shared PROPERTIES
 )
 
 target_link_libraries(SimpleVulkanRenderer 
-	PRIVATE SDL3::SDL3 volk::volk fmt::fmt
+	PRIVATE SDL3::SDL3 volk::volk fmt::fmt SimpleVulkanRenderer_shaders
 )
 
 target_precompile_headers(SimpleVulkanRenderer
