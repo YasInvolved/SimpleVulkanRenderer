@@ -1007,8 +1007,14 @@ private:
 	{
 		vkDeviceWaitIdle(m_device);
 
+		if (m_depthImageView != VK_NULL_HANDLE)
+			vkDestroyImageView(m_device, m_depthImageView, nullptr);
+
 		if (m_depthImage != VK_NULL_HANDLE)
 			vkDestroyImage(m_device, m_depthImage, nullptr);
+
+		if (m_depthImageMemory != VK_NULL_HANDLE)
+			vkFreeMemory(m_device, m_depthImageMemory, nullptr);
 
 		if (m_graphicsPipeline != VK_NULL_HANDLE)
 			vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
