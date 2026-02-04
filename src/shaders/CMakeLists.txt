@@ -19,14 +19,16 @@ target_include_directories(SimpleVulkanRenderer_shaders PUBLIC include)
 
 add_custom_command(
 	OUTPUT ${VERT_BIN}
-	COMMAND $<TARGET_FILE:Vulkan::dxc_exe> -spirv -T vs_6_0 -E VSMain "${VERT_SRC}" -Fo "${VERT_BIN}"
+	DEPENDS ${VERT_SRC}
+	COMMAND $<TARGET_FILE:Vulkan::dxc_exe> -spirv -fvk-use-dx-layout -T vs_6_0 -E VSMain "${VERT_SRC}" -Fo "${VERT_BIN}"
 	COMMENT "Compiling vertex shader"
 	VERBATIM
 )
 
 add_custom_command(
 	OUTPUT ${FRAG_BIN}
-	COMMAND $<TARGET_FILE:Vulkan::dxc_exe> -spirv -T ps_6_0 -E PSMain "${FRAG_SRC}" -Fo "${FRAG_BIN}"
+	DEPENDS ${VERT_SRC}
+	COMMAND $<TARGET_FILE:Vulkan::dxc_exe> -spirv -fvk-use-dx-layout -T ps_6_0 -E PSMain "${FRAG_SRC}" -Fo "${FRAG_BIN}"
 	COMMENT "Compiling fragment shader"
 	VERBATIM
 )

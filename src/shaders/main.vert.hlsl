@@ -7,8 +7,8 @@ struct PushConstants
 
 struct VSInput
 {
-    float3 pos : POSITION;
-    float3 color : COLOR;
+    [[vk::location(0)]] float3 pos : POSITION;
+    [[vk::location(1)]] float3 color : COLOR;
 };
 
 struct VSOutput
