@@ -64,6 +64,7 @@ class Application
 {
 private:
 	static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3ull;
+	const std::string_view m_modelPath;
 	bool m_isRunning = true;
 
 	SDL_Window* m_pWindow = nullptr;
@@ -109,7 +110,7 @@ private:
 	VkDeviceMemory m_vertexBufferMemory = VK_NULL_HANDLE;
 
 public:
-	Application() {}
+	Application(const std::string_view modelPath) : m_modelPath(modelPath) {}
 	~Application()
 	{
 		cleanup();
@@ -129,6 +130,7 @@ public:
 private:
 	void initialize()
 	{
+		loadObj(m_modelPath);
 		initWindow();
 		initVkInstance();
 		selectPhysicalDevice();
@@ -1095,6 +1097,47 @@ private:
 		vkMapMemory(m_device, m_stagingBufferMemory, 0, STAGING_BUFFER_SIZE, 0, &m_pStagingBuffer);
 	}
 
+	void loadObj(const std::string_view path) const
+	{
+		tinyobj::ObjReaderConfig conf;
+		conf.mtl_search_path = "./";
+
+		tinyobj::ObjReader reader;
+
+		if (!reader.ParseFromFile(path.data(), conf))
+		{
+			if (!reader.Error().empty())
+				throw std::runtime_error(fmt::format("tinyobjloader: {}", reader.Error()));
+			else
+				throw std::runtime_error("tinyobjloader: Unknown error");
+		}
+
+		if (!reader.Warning().empty())
+			fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "tinyobjloader: {}\n", reader.Warning());
+
+		auto& attrib = reader.GetAttrib();
+		auto& shapes = reader.GetShapes();
+
+		for (size_t s = 0; s < shapes.size(); s++)
+		{
+			size_t index_offset = 0;
+			for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++)
+			{
+				size_t fv = shapes[s].mesh.num_face_vertices[f];
+
+				for (size_t v = 0; v < fv; v++)
+				{
+					tinyobj::index_t ix = shapes[s].mesh.indices[index_offset + v];
+					tinyobj::real_t vx = attrib.vertices[3 * ix.vertex_index + 0];
+					tinyobj::real_t vy = attrib.vertices[3 * ix.vertex_index + 1];
+					tinyobj::real_t vz = attrib.vertices[3 * ix.vertex_index + 2];
+				}
+
+				index_offset += fv;
+			}
+		}
+	}
+
 	void cleanup()
 	{
 		vkDeviceWaitIdle(m_device);
@@ -1170,9 +1213,22 @@ private:
 
 int main(int argc, char** argv)
 {
-	Application app;
+	argparse::ArgumentParser parser("SimpleVulkanRenderer", "v1.0");
+	parser.add_argument("mesh_obj")
+		.required();
 
-	fmt::print("Vertex shader size: {}\nFragment shader size: {}\n", shaders::vert_code_size, shaders::frag_code_size);
+	try
+	{
+		parser.parse_args(argc, argv);
+	}
+	catch (const std::runtime_error& e)
+	{
+		fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "Argument Parsing Error: {}\n", e.what());
+		return -1;
+	}
+
+	std::string modelPath = parser.get<std::string>("mesh_obj");
+	Application app(modelPath);
 
 	try
 	{
