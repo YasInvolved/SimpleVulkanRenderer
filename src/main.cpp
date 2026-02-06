@@ -776,7 +776,7 @@ private:
 			.pVertexAttributeDescriptions = attrDescs.data()
 		};
 
-		const VkPipelineInputAssemblyStateCreateInfo iaState =
+		constexpr VkPipelineInputAssemblyStateCreateInfo iaState =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
 			.pNext = nullptr,
@@ -785,7 +785,7 @@ private:
 			.primitiveRestartEnable = VK_FALSE
 		};
 
-		const VkPipelineTessellationStateCreateInfo tessState =
+		constexpr VkPipelineTessellationStateCreateInfo tessState =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
 			.pNext = nullptr,
@@ -794,7 +794,7 @@ private:
 		};
 
 		// dynamic
-		const VkPipelineViewportStateCreateInfo viewportState =
+		constexpr VkPipelineViewportStateCreateInfo viewportState =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
 			.pNext = nullptr,
@@ -804,7 +804,7 @@ private:
 			.pScissors = nullptr
 		};
 
-		const VkPipelineRasterizationStateCreateInfo rasterInfo =
+		constexpr VkPipelineRasterizationStateCreateInfo rasterInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 			.pNext = nullptr,
@@ -821,7 +821,7 @@ private:
 			.lineWidth = 1.0f
 		};
 
-		const VkPipelineMultisampleStateCreateInfo msInfo =
+		constexpr VkPipelineMultisampleStateCreateInfo msInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
 			.pNext = nullptr,
@@ -834,7 +834,7 @@ private:
 			.alphaToOneEnable = VK_FALSE
 		};
 
-		const VkPipelineDepthStencilStateCreateInfo dsInfo =
+		constexpr VkPipelineDepthStencilStateCreateInfo dsInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
 			.pNext = nullptr,

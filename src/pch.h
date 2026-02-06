@@ -15,3 +15,5 @@
 #include <fmt/color.h>
 #include <glm/glm.hpp>
 #include <glm/ext/matrix_transform.hpp>
+#include <argparse/argparse.hpp>
+#include <tiny_obj_loader.h>

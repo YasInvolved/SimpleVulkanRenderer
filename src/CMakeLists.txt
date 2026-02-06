@@ -18,7 +18,7 @@ set_target_properties(SDL3-shared PROPERTIES
 )
 
 target_link_libraries(SimpleVulkanRenderer 
-	PRIVATE SDL3::SDL3 volk::volk fmt::fmt glm::glm SimpleVulkanRenderer_shaders
+	PRIVATE SDL3::SDL3 volk::volk fmt::fmt glm::glm SimpleVulkanRenderer_shaders tinyobjloader argparse::argparse
 )
 
 target_precompile_headers(SimpleVulkanRenderer
