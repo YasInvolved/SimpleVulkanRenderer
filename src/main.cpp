@@ -63,6 +63,7 @@ struct PushConstants
 class Application
 {
 private:
+	static constexpr size_t MAX_FRAMES_IN_FLIGHT = 3ull;
 	bool m_isRunning = true;
 
 	SDL_Window* m_pWindow = nullptr;
@@ -100,6 +101,13 @@ private:
 	VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
 	VkPipeline m_graphicsPipeline = VK_NULL_HANDLE;
 
+	VkBuffer m_stagingBuffer = VK_NULL_HANDLE;
+	VkDeviceMemory m_stagingBufferMemory = VK_NULL_HANDLE;
+	void* m_pStagingBuffer = VK_NULL_HANDLE;
+
+	VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
+	VkDeviceMemory m_vertexBufferMemory = VK_NULL_HANDLE;
+
 public:
 	Application() {}
 	~Application()
@@ -126,11 +134,12 @@ private:
 		selectPhysicalDevice();
 		initDevice();
 		initSwapchain();
+		initDeviceMemory();
 		initCmdPoolAndBuffers();
 		initRenderpass();
 		initPipeline();
-		initDeviceMemory();
 		initFramebuffers();
+		createBuffers();
 	}
 
 	void initWindow()
@@ -1035,10 +1044,66 @@ private:
 				throw std::runtime_error(fmt::format("Failed to create a framebuffer {}", i));
 		}
 	}
+	
+	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const
+	{
+		assert(m_device != VK_NULL_HANDLE);
+
+		const VkBufferCreateInfo createInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.pNext = nullptr,
+			.flags = 0,
+			.size = size,
+			.usage = usage,
+			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIndexCount = 1,
+			.pQueueFamilyIndices = &m_gfxQueueIx,
+		};
+
+		if (vkCreateBuffer(m_device, &createInfo, nullptr, &buffer) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create a buffer");
+
+		VkMemoryRequirements requirements;
+		vkGetBufferMemoryRequirements(m_device, buffer, &requirements);
+
+		const VkMemoryAllocateInfo allocInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+			.allocationSize = requirements.size,
+			.memoryTypeIndex = findMemoryType(requirements.memoryTypeBits, properties)
+		};
+
+		if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) != VK_SUCCESS)
+			throw std::runtime_error("Failed to allocate buffer's memory");
+
+		vkBindBufferMemory(m_device, buffer, memory, 0);
+	}
+
+	void createBuffers()
+	{
+		// TODO: real size
+		constexpr VkDeviceSize STAGING_BUFFER_SIZE = 1024ull;
+		constexpr VkMemoryPropertyFlags STAGING_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+		createBuffer(STAGING_BUFFER_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, STAGING_BUFFER_MEMPROPS, m_stagingBuffer, m_stagingBufferMemory);
+
+		constexpr VkDeviceSize VERTEX_BUFFER_SIZE = STAGING_BUFFER_SIZE;
+		constexpr VkMemoryPropertyFlags VERTEX_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		constexpr VkBufferUsageFlags VERTEX_BUFFER_USAGE = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		createBuffer(VERTEX_BUFFER_SIZE, VERTEX_BUFFER_USAGE, VERTEX_BUFFER_MEMPROPS, m_vertexBuffer, m_vertexBufferMemory);
+
+		vkMapMemory(m_device, m_stagingBufferMemory, 0, STAGING_BUFFER_SIZE, 0, &m_pStagingBuffer);
+	}
 
 	void cleanup()
 	{
 		vkDeviceWaitIdle(m_device);
+
+		vkUnmapMemory(m_device, m_stagingBufferMemory);
+		vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
+		vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
+		vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
+		vkFreeMemory(m_device, m_stagingBufferMemory, nullptr);
 
 		for (const auto& framebuffer : m_swapchainFramebuffers)
 			vkDestroyFramebuffer(m_device, framebuffer, nullptr);
