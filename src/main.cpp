@@ -852,7 +852,7 @@ private:
 			.rasterizerDiscardEnable = VK_FALSE,
 			.polygonMode = VK_POLYGON_MODE_FILL,
 			.cullMode = VK_CULL_MODE_BACK_BIT,
-			.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+			.frontFace = VK_FRONT_FACE_CLOCKWISE,
 			.depthBiasEnable = VK_FALSE,
 			.depthBiasConstantFactor = 0.0f,
 			.depthBiasClamp = 0.0f,
@@ -1179,7 +1179,7 @@ private:
 			{
 				for (size_t v = 0; v < fv; v++)
 				{
-					Vertex vtx{};
+					Vertex vtx{ .color = { 1.0f, 1.0f, 1.0f } };
 					tinyobj::index_t ix = shape.mesh.indices[index_offset + v];
 					vtx.pos.x = attrib.vertices[3 * ix.vertex_index + 0];
 					vtx.pos.y = attrib.vertices[3 * ix.vertex_index + 1];
@@ -1223,7 +1223,7 @@ private:
 		glm::mat4 model = glm::identity<glm::mat4>();
 
 		glm::mat4 view = glm::lookAt(
-			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(2.0f, 0.0f, 2.0f),
 			glm::vec3(0.0f, 0.0f, 0.0f),
 			glm::vec3(0.0f, 0.0f, 1.0f)
 		);
@@ -1231,7 +1231,7 @@ private:
 		glm::mat4 proj = glm::perspective(glm::radians(70.0f), aspect, 0.1f, 10.0f);
 		proj[1][1] *= -1;
 
-		return proj * view * model;
+		return glm::transpose(proj * view * model);
 	}
 
 	void update()

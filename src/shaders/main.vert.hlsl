@@ -1,6 +1,6 @@
 struct PushConstants
 {
-    row_major matrix mvp;
+    matrix mvp;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> pushConsts;
