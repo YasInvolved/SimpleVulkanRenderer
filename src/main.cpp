@@ -111,6 +111,7 @@ private:
 	VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory m_vertexBufferMemory = VK_NULL_HANDLE;
 
+	size_t m_indices = 0;
 	VkBuffer m_indexBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory m_indexBufferMemory = VK_NULL_HANDLE;
 
@@ -1132,21 +1133,6 @@ private:
 		vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuf);
 	}
 
-	//void createBuffers()
-	//{
-	//	// TODO: real size
-	//	constexpr VkDeviceSize STAGING_BUFFER_SIZE = 1024ull;
-	//	constexpr VkMemoryPropertyFlags STAGING_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-	//	createBuffer(STAGING_BUFFER_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, STAGING_BUFFER_MEMPROPS, m_stagingBuffer, m_stagingBufferMemory);
-
-	//	constexpr VkDeviceSize VERTEX_BUFFER_SIZE = STAGING_BUFFER_SIZE;
-	//	constexpr VkMemoryPropertyFlags VERTEX_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	//	constexpr VkBufferUsageFlags VERTEX_BUFFER_USAGE = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-	//	createBuffer(VERTEX_BUFFER_SIZE, VERTEX_BUFFER_USAGE, VERTEX_BUFFER_MEMPROPS, m_vertexBuffer, m_vertexBufferMemory);
-
-	//	vkMapMemory(m_device, m_stagingBufferMemory, 0, STAGING_BUFFER_SIZE, 0, &m_pStagingBuffer);
-	//}
-
 	void loadObj(const std::string_view path)
 	{
 		tinyobj::ObjReaderConfig conf;
@@ -1214,6 +1200,57 @@ private:
 
 		std::memcpy(m_pStagingBuffer, indices.data(), indices.size() * sizeof(uint32_t));
 		copyBuffer(m_stagingBuffer, m_indexBuffer, indices.size() * sizeof(uint32_t));
+		m_indices = indices.size();
+	}
+
+	void recordRenderingBuffer(VkCommandBuffer cmdBuf, uint32_t imgIx)
+	{
+		VkCommandBufferBeginInfo beginInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = 0,
+		};
+
+		vkBeginCommandBuffer(cmdBuf, &beginInfo);
+
+		std::array<VkClearValue, 2> clearVals{};
+		clearVals[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+		clearVals[1].depthStencil = { 1.0f, 0 };
+
+		const VkRenderPassBeginInfo renderPassInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+			.renderPass = m_renderPass,
+			.framebuffer = m_swapchainFramebuffers[imgIx],
+			.renderArea =
+			{
+				.offset = {0, 0},
+				.extent = { m_swapchainImgWidth, m_swapchainImgHeight }
+			},
+			.clearValueCount = static_cast<uint32_t>(clearVals.size()),
+			.pClearValues = clearVals.data()
+		};
+
+		vkCmdBeginRenderPass(cmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
+
+		VkBuffer vertexBuffers[] = { m_vertexBuffer };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(cmdBuf, 0, 1, vertexBuffers, offsets);
+		vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+		const PushConstants pushData =
+		{
+			//.mvp = 
+		};
+
+		vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pushData);
+		vkCmdDrawIndexed(cmdBuf, static_cast<uint32_t>(m_indices), 1, 0, 0, 0);
+		vkCmdEndRenderPass(cmdBuf);
+
+		if (vkEndCommandBuffer(cmdBuf) != VK_SUCCESS)
+			throw std::runtime_error("Failed to record a command buffer");
 	}
 
 	void cleanup()
@@ -1253,6 +1290,22 @@ private:
 		SDL_Quit();
 	}
 
+	glm::mat4 calculateMVP(float aspect)
+	{
+		glm::mat4 model = glm::identity<glm::mat4>();
+
+		glm::mat4 view = glm::lookAt(
+			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+
+		glm::mat4 proj = glm::perspective(glm::radians(70.0f), aspect, 0.1f, 10.0f);
+		proj[1][1] *= -1;
+
+		return proj * view * model;
+	}
+
 	void update()
 	{
 		SDL_Event sdlEvent;
@@ -1261,6 +1314,8 @@ private:
 			if (sdlEvent.type == SDL_EVENT_QUIT)
 				m_isRunning = false;
 		}
+
+		glm::mat3 mvp = calculateMVP(m_swapchainImgWidth / m_swapchainImgHeight);
 	}
 
 	void render()

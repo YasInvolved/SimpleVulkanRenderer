@@ -4,6 +4,7 @@
 #include <vector>
 #include <array>
 #include <algorithm>
+#include <chrono>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -14,6 +15,6 @@
 #include <fmt/format.h>
 #include <fmt/color.h>
 #include <glm/glm.hpp>
-#include <glm/ext/matrix_transform.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <argparse/argparse.hpp>
 #include <tiny_obj_loader.h>
