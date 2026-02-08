@@ -1263,6 +1263,13 @@ private:
 	{
 		vkDeviceWaitIdle(m_device);
 
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			vkDestroySemaphore(m_device, m_renderFinishedSemaphores[i], nullptr);
+			vkDestroySemaphore(m_device, m_imageAvailableSemaphores[i], nullptr);
+			vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
+		}
+
 		vkUnmapMemory(m_device, m_stagingBufferMemory);
 		vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
 		vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
