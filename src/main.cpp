@@ -80,6 +80,8 @@ private:
 	VkDevice m_device = VK_NULL_HANDLE;
 	VkPhysicalDeviceMemoryProperties m_memoryProperties = {};
 
+	VkQueue m_gfxQueue;
+
 	// surface & swapchain
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 	VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
@@ -109,6 +111,9 @@ private:
 	VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory m_vertexBufferMemory = VK_NULL_HANDLE;
 
+	VkBuffer m_indexBuffer = VK_NULL_HANDLE;
+	VkDeviceMemory m_indexBufferMemory = VK_NULL_HANDLE;
+
 public:
 	Application(const std::string_view modelPath) : m_modelPath(modelPath) {}
 	~Application()
@@ -130,7 +135,6 @@ public:
 private:
 	void initialize()
 	{
-		loadObj(m_modelPath);
 		initWindow();
 		initVkInstance();
 		selectPhysicalDevice();
@@ -141,7 +145,7 @@ private:
 		initRenderpass();
 		initPipeline();
 		initFramebuffers();
-		createBuffers();
+		loadObj(m_modelPath);
 	}
 
 	void initWindow()
@@ -352,7 +356,7 @@ private:
 			bool hasGraphicsFamily = false;
 			for (const auto& props : qfProps)
 			{
-				if (props.queueCount > 0 && BITFIELD_TRUE(props.queueFlags, VK_QUEUE_GRAPHICS_BIT))
+				if (props.queueCount > 0 && BITFIELD_TRUE(props.queueFlags, (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT)))
 				{
 					hasGraphicsFamily = true;
 					break;
@@ -446,6 +450,10 @@ private:
 
 		if (vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create a logical device.");
+
+		volkLoadDevice(m_device);
+
+		vkGetDeviceQueue(m_device, m_gfxQueueIx, 0, &m_gfxQueue);
 	}
 
 	VkSurfaceCapabilitiesKHR getSurfaceCapabilities(VkSurfaceKHR surface) const
@@ -1082,22 +1090,64 @@ private:
 		vkBindBufferMemory(m_device, buffer, memory, 0);
 	}
 
-	void createBuffers()
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 	{
-		// TODO: real size
-		constexpr VkDeviceSize STAGING_BUFFER_SIZE = 1024ull;
-		constexpr VkMemoryPropertyFlags STAGING_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-		createBuffer(STAGING_BUFFER_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, STAGING_BUFFER_MEMPROPS, m_stagingBuffer, m_stagingBufferMemory);
+		assert(m_commandPool != VK_NULL_HANDLE);
 
-		constexpr VkDeviceSize VERTEX_BUFFER_SIZE = STAGING_BUFFER_SIZE;
-		constexpr VkMemoryPropertyFlags VERTEX_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-		constexpr VkBufferUsageFlags VERTEX_BUFFER_USAGE = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-		createBuffer(VERTEX_BUFFER_SIZE, VERTEX_BUFFER_USAGE, VERTEX_BUFFER_MEMPROPS, m_vertexBuffer, m_vertexBufferMemory);
+		const VkCommandBufferAllocateInfo cmdBufAllocInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = m_commandPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = 1
+		};
 
-		vkMapMemory(m_device, m_stagingBufferMemory, 0, STAGING_BUFFER_SIZE, 0, &m_pStagingBuffer);
+		VkCommandBuffer cmdBuf;
+		vkAllocateCommandBuffers(m_device, &cmdBufAllocInfo, &cmdBuf);
+
+		constexpr VkCommandBufferBeginInfo beginInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+		};
+
+		vkBeginCommandBuffer(cmdBuf, &beginInfo);
+
+		VkBufferCopy copyRegion{};
+		copyRegion.srcOffset = 0;
+		copyRegion.dstOffset = 0;
+		copyRegion.size = size;
+		vkCmdCopyBuffer(cmdBuf, srcBuffer, dstBuffer, 1, &copyRegion);
+
+		vkEndCommandBuffer(cmdBuf);
+
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &cmdBuf;
+
+		vkQueueSubmit(m_gfxQueue, 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(m_gfxQueue);
+
+		vkFreeCommandBuffers(m_device, m_commandPool, 1, &cmdBuf);
 	}
 
-	void loadObj(const std::string_view path) const
+	//void createBuffers()
+	//{
+	//	// TODO: real size
+	//	constexpr VkDeviceSize STAGING_BUFFER_SIZE = 1024ull;
+	//	constexpr VkMemoryPropertyFlags STAGING_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	//	createBuffer(STAGING_BUFFER_SIZE, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, STAGING_BUFFER_MEMPROPS, m_stagingBuffer, m_stagingBufferMemory);
+
+	//	constexpr VkDeviceSize VERTEX_BUFFER_SIZE = STAGING_BUFFER_SIZE;
+	//	constexpr VkMemoryPropertyFlags VERTEX_BUFFER_MEMPROPS = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	//	constexpr VkBufferUsageFlags VERTEX_BUFFER_USAGE = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	//	createBuffer(VERTEX_BUFFER_SIZE, VERTEX_BUFFER_USAGE, VERTEX_BUFFER_MEMPROPS, m_vertexBuffer, m_vertexBufferMemory);
+
+	//	vkMapMemory(m_device, m_stagingBufferMemory, 0, STAGING_BUFFER_SIZE, 0, &m_pStagingBuffer);
+	//}
+
+	void loadObj(const std::string_view path)
 	{
 		tinyobj::ObjReaderConfig conf;
 		conf.mtl_search_path = "./";
@@ -1118,24 +1168,52 @@ private:
 		auto& attrib = reader.GetAttrib();
 		auto& shapes = reader.GetShapes();
 
-		for (size_t s = 0; s < shapes.size(); s++)
+		std::vector<Vertex> vertices;
+		std::vector<uint32_t> indices;
+
+		for (const auto& shape : shapes)
 		{
 			size_t index_offset = 0;
-			for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++)
+			for (const auto& fv : shape.mesh.num_face_vertices)
 			{
-				size_t fv = shapes[s].mesh.num_face_vertices[f];
-
 				for (size_t v = 0; v < fv; v++)
 				{
-					tinyobj::index_t ix = shapes[s].mesh.indices[index_offset + v];
-					tinyobj::real_t vx = attrib.vertices[3 * ix.vertex_index + 0];
-					tinyobj::real_t vy = attrib.vertices[3 * ix.vertex_index + 1];
-					tinyobj::real_t vz = attrib.vertices[3 * ix.vertex_index + 2];
+					Vertex vtx{};
+					tinyobj::index_t ix = shape.mesh.indices[index_offset + v];
+					vtx.pos.x = attrib.vertices[3 * ix.vertex_index + 0];
+					vtx.pos.y = attrib.vertices[3 * ix.vertex_index + 1];
+					vtx.pos.z = attrib.vertices[3 * ix.vertex_index + 2];
+					vertices.emplace_back(std::move(vtx));
+					indices.emplace_back(ix.vertex_index);
 				}
 
 				index_offset += fv;
 			}
 		}
+
+		// create buffers and copy data
+		const VkDeviceSize bufSize = vertices.size() * sizeof(Vertex);
+		createBuffer(bufSize,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			m_vertexBuffer, m_vertexBufferMemory);
+
+		createBuffer(bufSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			m_stagingBuffer, m_stagingBufferMemory);
+
+		createBuffer(bufSize,
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			m_indexBuffer, m_indexBufferMemory);
+
+		vkMapMemory(m_device, m_stagingBufferMemory, 0, bufSize, 0, &m_pStagingBuffer);
+		std::memcpy(m_pStagingBuffer, vertices.data(), bufSize);
+		copyBuffer(m_stagingBuffer, m_vertexBuffer, bufSize);
+
+		std::memcpy(m_pStagingBuffer, indices.data(), indices.size() * sizeof(uint32_t));
+		copyBuffer(m_stagingBuffer, m_indexBuffer, indices.size() * sizeof(uint32_t));
 	}
 
 	void cleanup()
@@ -1143,8 +1221,10 @@ private:
 		vkDeviceWaitIdle(m_device);
 
 		vkUnmapMemory(m_device, m_stagingBufferMemory);
+		vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
 		vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
 		vkDestroyBuffer(m_device, m_stagingBuffer, nullptr);
+		vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
 		vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
 		vkFreeMemory(m_device, m_stagingBufferMemory, nullptr);
 
