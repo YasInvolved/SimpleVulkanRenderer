@@ -819,10 +819,18 @@ private:
 			.pDynamicStates = dynamicStates.data()
 		};
 
+		const VkPipelineRenderingCreateInfo renderingInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+			.pNext = nullptr,
+			.colorAttachmentCount = 1,
+			.pColorAttachmentFormats = &m_swapchainImgFormat.format,
+		};
+
 		const VkGraphicsPipelineCreateInfo pipelineCreateInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-			.pNext = nullptr,
+			.pNext = &renderingInfo,
 			.flags = 0,
 			.stageCount = static_cast<uint32_t>(shaderStages.size()),
 			.pStages = shaderStages.data(),
