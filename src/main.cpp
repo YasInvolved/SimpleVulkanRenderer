@@ -97,6 +97,7 @@ private:
 	VkImageView m_depthImageView = VK_NULL_HANDLE;
 
 	VkCommandPool m_commandPool = VK_NULL_HANDLE;
+	std::vector<VkCommandBuffer> m_commandBuffers;
 
 	VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
 	VkPipeline m_graphicsPipeline = VK_NULL_HANDLE;
@@ -606,9 +607,9 @@ private:
 
 	void initSync()
 	{
-		m_imageAvailableSemaphores.resize(m_swapchainImageCount);
-		m_renderingFinishedSemaphores.resize(m_swapchainImageCount);
-		m_inFlightFences.resize(m_swapchainImageCount);
+		m_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		m_renderingFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		m_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
 		const VkSemaphoreCreateInfo sCreateInfo =
 		{
@@ -621,7 +622,7 @@ private:
 			.flags = VK_FENCE_CREATE_SIGNALED_BIT,
 		};
 
-		for (uint32_t i = 0; i < m_swapchainImageCount; i++)
+		for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			if (vkCreateSemaphore(m_device, &sCreateInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS)
 				throw std::runtime_error("Failed to create a semaphore");
@@ -661,6 +662,19 @@ private:
 
 		if (vkCreateCommandPool(m_device, &createInfo, nullptr, &m_commandPool) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create a command pool");
+
+		m_commandBuffers.resize(m_swapchainImageCount);
+		
+		const VkCommandBufferAllocateInfo allocInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+			.commandPool = m_commandPool,
+			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			.commandBufferCount = m_swapchainImageCount,
+		};
+
+		if (vkAllocateCommandBuffers(m_device, &allocInfo, m_commandBuffers.data()) != VK_SUCCESS)
+			throw std::runtime_error("Failed to allocate command buffers");
 	}
 
 	VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode) const
@@ -862,6 +876,7 @@ private:
 			.pNext = nullptr,
 			.colorAttachmentCount = 1,
 			.pColorAttachmentFormats = &m_swapchainImgFormat.format,
+			.depthAttachmentFormat = m_depthStencilFormat
 		};
 
 		const VkGraphicsPipelineCreateInfo pipelineCreateInfo =
@@ -1178,9 +1193,203 @@ private:
 		SDL_Quit();
 	}
 
+	void recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t imgIx)
+	{
+		const VkCommandBufferBeginInfo beginInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		};
+
+		if (vkBeginCommandBuffer(cmdBuf, &beginInfo) != VK_SUCCESS)
+			throw std::runtime_error("Failed to begin recording a command buffer");
+
+		std::array<VkImageMemoryBarrier, 2> barriers =
+		{
+			{
+				{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+					.srcAccessMask = 0,
+					.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+					.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+					.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					.image = m_swapchainImages[imgIx],
+					.subresourceRange =
+					{
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1
+					}
+				},
+				{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+					.srcAccessMask = 0,
+					.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+					.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+					.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+					.image = m_depthImage,
+					.subresourceRange =
+					{
+						.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1
+					}
+				}
+			}
+		};
+
+		vkCmdPipelineBarrier(
+			cmdBuf,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &barriers[0]
+		);
+
+		vkCmdPipelineBarrier(
+			cmdBuf,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &barriers[1]
+		);
+
+		std::array<VkRenderingAttachmentInfo, 2> attachmentInfos =
+		{
+			{
+				{
+					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+					.imageView = m_swapchainImageViews[imgIx],
+					.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+					.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+					.clearValue = {.color = {0.0f, 0.0f, 0.0f} }
+				},
+				{
+					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+					.imageView = m_depthImageView,
+					.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+					.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+					.clearValue = {.depthStencil = { 0.0f, 0u } }
+				}
+			}
+		};
+
+		const VkRenderingInfo renderingInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+			.renderArea = { { 0u, 0u }, m_swapchainExtent },
+			.layerCount = 1,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &attachmentInfos[0],
+			.pDepthAttachment = &attachmentInfos[1]
+		};
+
+		vkCmdBeginRendering(cmdBuf, &renderingInfo);
+		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
+		
+		const VkViewport viewport =
+		{
+			.x = 0.0f,
+			.y = 0.0f,
+			.width = static_cast<float>(m_swapchainExtent.width),
+			.height = static_cast<float>(m_swapchainExtent.height),
+			.minDepth = 0.0f,
+			.maxDepth = 1.0f
+		};
+		vkCmdSetViewport(cmdBuf, 0, 1, &viewport);
+
+		const VkRect2D scissor =
+		{
+			.offset = { 0, 0 },
+			.extent = m_swapchainExtent
+		};
+		vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
+
+		constexpr VkDeviceSize VERTEX_BUFFER_OFFSET = 0ull;
+		vkCmdBindVertexBuffers(cmdBuf, 0, 1, &m_vertexBuffer, &VERTEX_BUFFER_OFFSET);
+		vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+		PushConstants pushConstants =
+		{
+			.mvp = glm::identity<glm::mat4>()
+		};
+
+		vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pushConstants);
+
+		vkCmdDrawIndexed(cmdBuf, m_indices, 1, 0, 0, 0);
+		vkCmdEndRendering(cmdBuf);
+
+		barriers[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		barriers[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		barriers[0].dstAccessMask = 0;
+
+		vkCmdPipelineBarrier(
+			cmdBuf,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &barriers[0]
+		);
+
+		if (vkEndCommandBuffer(cmdBuf) != VK_SUCCESS)
+			throw std::runtime_error("Failed to finish command buffer recording");
+	}
+
 	void render()
 	{
-		vkWaitForFences(m_device, 1, )
+		static constexpr uint64_t WAIT_TIMEOUT = UINT64_MAX;
+		vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, WAIT_TIMEOUT);
+
+		uint32_t imgIx;
+		VkResult result = vkAcquireNextImageKHR(m_device, m_swapchain, WAIT_TIMEOUT, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &imgIx);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR)
+			throw std::runtime_error("Not implemented");
+		else if (result != VK_SUCCESS)
+			throw std::runtime_error("Failed to acquire next image");
+
+		vkResetFences(m_device, 1, &m_inFlightFences[m_currentFrame]);
+
+		VkCommandBuffer currentCmdBuf = m_commandBuffers[m_currentFrame];
+		vkResetCommandBuffer(currentCmdBuf, 0);
+		recordCommandBuffer(currentCmdBuf, imgIx);
+
+		constexpr VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		const VkSubmitInfo submitInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &m_imageAvailableSemaphores[m_currentFrame],
+			.pWaitDstStageMask = &waitStage,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &currentCmdBuf,
+			.signalSemaphoreCount = 1,
+			.pSignalSemaphores = &m_renderingFinishedSemaphores[imgIx],
+		};
+
+		if (vkQueueSubmit(m_gfxQueue, 1, &submitInfo, m_inFlightFences[m_currentFrame]) != VK_SUCCESS)
+			throw std::runtime_error("Failed to submit a command queue");
+
+		const VkPresentInfoKHR presentInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+			.waitSemaphoreCount = 1,
+			.pWaitSemaphores = &m_renderingFinishedSemaphores[imgIx],
+			.swapchainCount = 1,
+			.pSwapchains = &m_swapchain,
+			.pImageIndices = &imgIx
+		};
+
+		result = vkQueuePresentKHR(m_gfxQueue, &presentInfo);
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+			throw std::runtime_error("Not implemented");
+		else if (result != VK_SUCCESS)
+			throw std::runtime_error("Failed to present an image");
+
+		m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 	static VkBool32 DebugMessengerCallback(
