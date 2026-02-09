@@ -85,7 +85,8 @@ private:
 	// surface & swapchain
 	VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 	VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
-	uint32_t m_swapchainImgWidth = 0, m_swapchainImgHeight = 0;
+	uint32_t m_swapchainImageCount = 0;
+	VkExtent2D m_swapchainExtent{};
 	VkSurfaceFormatKHR m_swapchainImgFormat = {};
 	VkFormat m_depthStencilFormat = VK_FORMAT_D32_SFLOAT;
 	std::vector<VkImage> m_swapchainImages;
@@ -111,6 +112,13 @@ private:
 	size_t m_indices = 0;
 	VkBuffer m_indexBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory m_indexBufferMemory = VK_NULL_HANDLE;
+
+	// sync
+	std::vector<VkSemaphore> m_imageAvailableSemaphores;
+	std::vector<VkSemaphore> m_renderingFinishedSemaphores;
+	std::vector<VkFence> m_inFlightFences;
+
+	uint32_t m_currentFrame = 0;
 
 public:
 	Application(const std::string_view modelPath) 
@@ -141,6 +149,7 @@ private:
 		selectPhysicalDevice();
 		initDevice();
 		initSwapchain();
+		initSync();
 		initDeviceMemory();
 		initCmdPoolAndBuffers();
 		initPipeline();
@@ -531,6 +540,8 @@ private:
 				presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
 		}
 
+		m_swapchainExtent = sfCaps.currentExtent;
+
 		const VkSwapchainCreateInfoKHR scCreateInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -540,7 +551,7 @@ private:
 			.minImageCount = minImageCount,
 			.imageFormat = m_swapchainImgFormat.format,
 			.imageColorSpace = m_swapchainImgFormat.colorSpace,
-			.imageExtent = sfCaps.currentExtent,
+			.imageExtent = m_swapchainExtent,
 			.imageArrayLayers = 1,
 			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 			.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -556,18 +567,14 @@ private:
 		if (vkCreateSwapchainKHR(m_device, &scCreateInfo, nullptr, &m_swapchain) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create a swapchain");
 
-		m_swapchainImgWidth = scCreateInfo.imageExtent.width;
-		m_swapchainImgHeight = scCreateInfo.imageExtent.height;
+		vkGetSwapchainImagesKHR(m_device, m_swapchain, &m_swapchainImageCount, nullptr);
 
-		uint32_t imageCount;
-		vkGetSwapchainImagesKHR(m_device, m_swapchain, &imageCount, nullptr);
-
-		m_swapchainImages.resize(imageCount);
-		m_swapchainImageViews.resize(imageCount);
-		if (vkGetSwapchainImagesKHR(m_device, m_swapchain, &imageCount, m_swapchainImages.data()) != VK_SUCCESS)
+		m_swapchainImages.resize(m_swapchainImageCount);
+		m_swapchainImageViews.resize(m_swapchainImageCount);
+		if (vkGetSwapchainImagesKHR(m_device, m_swapchain, &m_swapchainImageCount, m_swapchainImages.data()) != VK_SUCCESS)
 			throw std::runtime_error("Failed to get swapchain images");
 
-		for (uint32_t i = 0; i < imageCount; i++)
+		for (uint32_t i = 0; i < m_swapchainImageCount; i++)
 		{
 			const VkImageViewCreateInfo ivCreateInfo
 			{
@@ -594,6 +601,36 @@ private:
 
 			if (vkCreateImageView(m_device, &ivCreateInfo, nullptr, &m_swapchainImageViews[i]) != VK_SUCCESS)
 				throw std::runtime_error(fmt::format("vkCreateImageView failed for swapchain image {}", i));
+		}
+	}
+
+	void initSync()
+	{
+		m_imageAvailableSemaphores.resize(m_swapchainImageCount);
+		m_renderingFinishedSemaphores.resize(m_swapchainImageCount);
+		m_inFlightFences.resize(m_swapchainImageCount);
+
+		const VkSemaphoreCreateInfo sCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+		};
+
+		const VkFenceCreateInfo fCreateInfo =
+		{
+			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+			.flags = VK_FENCE_CREATE_SIGNALED_BIT,
+		};
+
+		for (uint32_t i = 0; i < m_swapchainImageCount; i++)
+		{
+			if (vkCreateSemaphore(m_device, &sCreateInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS)
+				throw std::runtime_error("Failed to create a semaphore");
+
+			if (vkCreateSemaphore(m_device, &sCreateInfo, nullptr, &m_renderingFinishedSemaphores[i]) != VK_SUCCESS)
+				throw std::runtime_error("Failed to create a semaphore");
+
+			if (vkCreateFence(m_device, &fCreateInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS)
+				throw std::runtime_error("Failed to create a fence");
 		}
 	}
 
@@ -889,8 +926,8 @@ private:
 			.format = m_depthStencilFormat,
 			.extent =
 			{
-				.width = m_swapchainImgWidth,
-				.height = m_swapchainImgHeight,
+				.width = m_swapchainExtent.width,
+				.height = m_swapchainExtent.height,
 				.depth = 1u
 			},
 			.mipLevels = 1,
@@ -1122,8 +1159,13 @@ private:
 		vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
 
-		for (const auto& imageView : m_swapchainImageViews)
-			vkDestroyImageView(m_device, imageView, nullptr);
+		for (uint32_t i = 0; i < m_swapchainImageCount; i++)
+		{
+			vkDestroySemaphore(m_device, m_imageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(m_device, m_renderingFinishedSemaphores[i], nullptr);
+			vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
+			vkDestroyImageView(m_device, m_swapchainImageViews[i], nullptr);
+		}
 
 		vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
 		SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
@@ -1138,6 +1180,7 @@ private:
 
 	void render()
 	{
+		vkWaitForFences(m_device, 1, )
 	}
 
 	static VkBool32 DebugMessengerCallback(
