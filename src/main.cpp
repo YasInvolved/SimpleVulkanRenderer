@@ -433,10 +433,17 @@ private:
 			.pQueuePriorities = &gfxQueuePrio
 		};
 
+		const VkPhysicalDeviceDynamicRenderingFeatures dynRenderingFeatures =
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+			.pNext = nullptr,
+			.dynamicRendering = VK_TRUE
+		};
+
 		const VkDeviceCreateInfo createInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-			.pNext = nullptr,
+			.pNext = &dynRenderingFeatures,
 			.flags = 0,
 			.queueCreateInfoCount = 1,
 			.pQueueCreateInfos = &queueCreateInfo,
