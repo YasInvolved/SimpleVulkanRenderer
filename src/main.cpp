@@ -120,6 +120,7 @@ private:
 	std::vector<VkFence> m_inFlightFences;
 
 	uint32_t m_currentFrame = 0;
+	glm::mat4 m_mvp = glm::identity<glm::mat4>();
 
 public:
 	Application(const std::string_view modelPath) 
@@ -1154,6 +1155,21 @@ private:
 			if (sdlEvent.type == SDL_EVENT_QUIT)
 				m_isRunning = false;
 		}
+
+		glm::mat4 view = glm::lookAt(
+			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+
+		glm::mat4 proj = glm::perspective(
+			glm::radians<float>(70),
+			(float)m_swapchainExtent.width / (float)m_swapchainExtent.height,
+			0.1f, 10.0f
+		);
+
+		m_mvp = m_mvp * view * proj;
+		m_mvp = glm::transpose(m_mvp);
 	}
 
 	void cleanup()
@@ -1264,7 +1280,7 @@ private:
 					.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 					.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-					.clearValue = {.color = {0.0f, 0.0f, 0.0f} }
+					.clearValue = {.color = {0.1f, 0.1f, 0.1f} }
 				},
 				{
 					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
