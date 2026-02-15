@@ -105,7 +105,6 @@ private:
 	VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory m_vertexBufferMemory = VK_NULL_HANDLE;
 
-	size_t m_indices = 0;
 	VkBuffer m_indexBuffer = VK_NULL_HANDLE;
 	VkDeviceMemory m_indexBufferMemory = VK_NULL_HANDLE;
 
@@ -113,6 +112,9 @@ private:
 	std::vector<VkSemaphore> m_imageAvailableSemaphores;
 	std::vector<VkSemaphore> m_renderingFinishedSemaphores;
 	std::vector<VkFence> m_inFlightFences;
+
+	std::vector<Vertex> m_vertices;
+	std::vector<uint32_t> m_indices;
 
 	uint32_t m_currentFrame = 0;
 	glm::mat4 m_mvp = glm::identity<glm::mat4>();
@@ -1093,9 +1095,6 @@ private:
 		auto& attrib = reader.GetAttrib();
 		auto& shapes = reader.GetShapes();
 
-		std::vector<Vertex> vertices;
-		std::vector<uint32_t> indices;
-
 		for (const auto& shape : shapes)
 		{
 			size_t index_offset = 0;
@@ -1108,8 +1107,8 @@ private:
 					vtx.pos.x = attrib.vertices[3 * ix.vertex_index + 0];
 					vtx.pos.y = attrib.vertices[3 * ix.vertex_index + 1];
 					vtx.pos.z = attrib.vertices[3 * ix.vertex_index + 2];
-					vertices.emplace_back(std::move(vtx));
-					indices.emplace_back(ix.vertex_index);
+					m_vertices.emplace_back(std::move(vtx));
+					m_indices.emplace_back(ix.vertex_index);
 				}
 
 				index_offset += fv;
@@ -1117,39 +1116,45 @@ private:
 		}
 
 		// create buffers and copy data
-		const VkDeviceSize bufSize = vertices.size() * sizeof(Vertex);
-		createBuffer(bufSize,
+		const VkDeviceSize vBufSize = m_vertices.size() * sizeof(Vertex);
+		const VkDeviceSize iBufSize = m_indices.size() * sizeof(uint32_t);
+		const VkDeviceSize sBufSize = std::max(vBufSize, iBufSize);
+
+		createBuffer(vBufSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			m_vertexBuffer, m_vertexBufferMemory);
 
-		createBuffer(bufSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			m_stagingBuffer, m_stagingBufferMemory);
-
-		createBuffer(bufSize,
+		createBuffer(iBufSize,
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			m_indexBuffer, m_indexBufferMemory);
 
-		vkMapMemory(m_device, m_stagingBufferMemory, 0, bufSize, 0, &m_pStagingBuffer);
-		std::memcpy(m_pStagingBuffer, vertices.data(), bufSize);
-		copyBuffer(m_stagingBuffer, m_vertexBuffer, bufSize);
+		createBuffer(sBufSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			m_stagingBuffer, m_stagingBufferMemory);
 
-		std::memcpy(m_pStagingBuffer, indices.data(), indices.size() * sizeof(uint32_t));
-		copyBuffer(m_stagingBuffer, m_indexBuffer, indices.size() * sizeof(uint32_t));
-		m_indices = indices.size();
+		vkMapMemory(m_device, m_stagingBufferMemory, 0, sBufSize, 0, &m_pStagingBuffer);
+		std::memcpy(m_pStagingBuffer, m_vertices.data(), vBufSize);
+		copyBuffer(m_stagingBuffer, m_vertexBuffer, vBufSize);
+
+		std::memcpy(m_pStagingBuffer, m_indices.data(), iBufSize);
+		copyBuffer(m_stagingBuffer, m_indexBuffer, iBufSize);
 	}
 
 	void update()
 	{
+		constexpr float ROT = glm::pi<float>() * 2;
+
 		SDL_Event sdlEvent;
 		while (SDL_PollEvent(&sdlEvent))
 		{
 			if (sdlEvent.type == SDL_EVENT_QUIT)
 				m_isRunning = false;
 		}
+
+		glm::mat4 model = glm::identity<glm::mat4>();
 
 		glm::mat4 view = glm::lookAt(
 			glm::vec3(2.0f, 2.0f, 2.0f),
@@ -1163,8 +1168,7 @@ private:
 			0.1f, 10.0f
 		);
 
-		m_mvp = m_mvp * view * proj;
-		m_mvp = glm::transpose(m_mvp);
+		m_mvp = glm::transpose(proj * view * model);
 	}
 
 	void cleanup()
@@ -1283,7 +1287,7 @@ private:
 					.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 					.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-					.clearValue = {.depthStencil = { 0.0f, 0u } }
+					.clearValue = {.depthStencil = { 1.0f, 0u } }
 				}
 			}
 		};
@@ -1306,7 +1310,7 @@ private:
 			.x = 0.0f,
 			.y = 0.0f,
 			.width = static_cast<float>(m_swapchainExtent.width),
-			.height = static_cast<float>(m_swapchainExtent.height),
+			.height = -static_cast<float>(m_swapchainExtent.height),
 			.minDepth = 0.0f,
 			.maxDepth = 1.0f
 		};
@@ -1325,7 +1329,7 @@ private:
 
 		vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &m_mvp);
 
-		vkCmdDrawIndexed(cmdBuf, m_indices, 1, 0, 0, 0);
+		vkCmdDrawIndexed(cmdBuf, m_indices.size(), 1, 0, 0, 0);
 		vkCmdEndRendering(cmdBuf);
 
 		barriers[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
