@@ -55,11 +55,6 @@ struct Vertex
 	}
 };
 
-struct PushConstants
-{
-	glm::mat4x4 mvp;
-};
-
 class Application
 {
 private:
@@ -706,7 +701,7 @@ private:
 		{
 			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
 			.offset = 0,
-			.size = sizeof(PushConstants)
+			.size = sizeof(glm::mat4)
 		};
 
 		const VkPipelineLayoutCreateInfo layoutCreateInfo =
@@ -1328,12 +1323,7 @@ private:
 		vkCmdBindVertexBuffers(cmdBuf, 0, 1, &m_vertexBuffer, &VERTEX_BUFFER_OFFSET);
 		vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-		PushConstants pushConstants =
-		{
-			.mvp = glm::identity<glm::mat4>()
-		};
-
-		vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pushConstants);
+		vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &m_mvp);
 
 		vkCmdDrawIndexed(cmdBuf, m_indices, 1, 0, 0, 0);
 		vkCmdEndRendering(cmdBuf);
