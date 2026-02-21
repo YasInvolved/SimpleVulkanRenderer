@@ -1225,7 +1225,7 @@ private:
 		glm::mat4 model = glm::identity<glm::mat4>();
 
 		glm::mat4 view = glm::lookAt(
-			glm::vec3(0.0f, 2.0f, -2.0f),
+			glm::vec3(0.0f, 0.0f, -3.0f),
 			glm::vec3(0.0f, 0.0f, 0.0f),
 			glm::vec3(0.0f, 1.0f, 0.0f)
 		);
@@ -1315,7 +1315,7 @@ private:
 					.srcAccessMask = 0,
 					.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 					.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-					.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+					.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 					.image = m_depthImage,
 					.subresourceRange =
 					{
@@ -1350,7 +1350,7 @@ private:
 					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
 					.imageView = m_swapchainImageViews[imgIx],
 					.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+					.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 					.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
 					.clearValue = {.color = {0.0f, 0.0f, 0.0f } }
 				},
@@ -1405,7 +1405,7 @@ private:
 		vkCmdDrawIndexed(cmdBuf, m_indices.size(), 1, 0, 0, 0);
 
 		auto* drawData = ImGui::GetDrawData();
-		ImGui_ImplVulkan_RenderDrawData(drawData, cmdBuf, m_graphicsPipeline);
+		ImGui_ImplVulkan_RenderDrawData(drawData, cmdBuf);
 
 		vkCmdEndRendering(cmdBuf);
 
