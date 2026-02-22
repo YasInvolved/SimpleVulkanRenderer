@@ -1145,7 +1145,7 @@ private:
 	{
 		const float aspect = static_cast<float>(m_swapchainExtent.width) / static_cast<float>(m_swapchainExtent.height);
 
-		m_camera.setPos(0.0f, 0.0f, -5.0f);
+		m_camera.setPos(0.0f, 3.0f, -5.0f);
 		m_camera.setLookingAt(0.0f, 0.0f, 0.0f);
 		m_camera.setFov(glm::radians(70.0f));
 		m_camera.setAspectRatio(aspect);
@@ -1161,7 +1161,7 @@ private:
 				m_isRunning = false;
 		}
 
-		m_mvp = glm::transpose(m_camera.getViewProjection() * m_mesh.getModel());
+		m_mvp = m_camera.getViewProjection() * m_mesh.getModel();
 	}
 
 	void cleanup()
