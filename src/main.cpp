@@ -3,6 +3,9 @@
 #include <backends/imgui_impl_vulkan.h>
 #include <backends/imgui_impl_sdl3.h>
 
+#include "Camera.h"
+#include "Mesh.h"
+
 #define BITFIELD_TRUE(x, y) (x & y) == y
 
 static constexpr auto SVR_DEBUG_UTILS_MESSAGE_TYPES =
@@ -15,48 +18,6 @@ VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
-
-struct Vertex
-{
-	glm::vec3 pos;
-	glm::vec3 color;
-
-	static constexpr VkVertexInputBindingDescription getBindingDescription()
-	{
-		constexpr VkVertexInputBindingDescription desc =
-		{
-			.binding = 0,
-			.stride = sizeof(Vertex),
-			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-		};
-
-		return desc;
-	}
-
-	using AttrDesc_t = std::array<VkVertexInputAttributeDescription, 2>;
-	static constexpr AttrDesc_t getAttributeDesc()
-	{
-		constexpr AttrDesc_t descs =
-		{
-			{
-				{
-					.location = 0,
-					.binding = 0,
-					.format = VK_FORMAT_R32G32B32_SFLOAT,
-					.offset = offsetof(Vertex, pos),
-				},
-				{
-					.location = 1,
-					.binding = 0,
-					.format = VK_FORMAT_R32G32B32_SFLOAT,
-					.offset = offsetof(Vertex, color),
-				}
-			}
-		};
-
-		return descs;
-	}
-};
 
 class Application
 {
@@ -118,14 +79,15 @@ private:
 	std::vector<VkSemaphore> m_renderingFinishedSemaphores;
 	std::vector<VkFence> m_inFlightFences;
 
-	std::vector<Vertex> m_vertices;
-	std::vector<uint32_t> m_indices;
+	svr::Mesh m_mesh;
+	svr::Camera m_camera;
 
 	// Imgui
 	VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
 
 	uint32_t m_currentFrame = 0;
-	glm::mat4 m_mvp = glm::identity<glm::mat4>();
+
+	glm::mat4 m_mvp;
 
 public:
 	Application(const std::string_view modelPath) 
@@ -162,6 +124,7 @@ private:
 		initPipeline();
 		initDescPool();
 		initImgui();
+		initCamera();
 		loadObj(m_modelPath);
 	}
 
@@ -756,8 +719,8 @@ private:
 			}
 		};
 
-		constexpr auto bindingDesc = Vertex::getBindingDescription();
-		constexpr auto attrDescs = Vertex::getAttributeDesc();
+		constexpr auto bindingDesc = svr::Mesh::Vertex::getBindingDescription();
+		constexpr auto attrDescs = svr::Mesh::Vertex::getAttributeDesc();
 
 		const VkPipelineVertexInputStateCreateInfo viState =
 		{
@@ -1145,48 +1108,14 @@ private:
 
 	void loadObj(const std::string_view path)
 	{
-		tinyobj::ObjReaderConfig conf;
-		conf.mtl_search_path = "./";
+		m_mesh = svr::Mesh::loadObjMesh(path);
 
-		tinyobj::ObjReader reader;
-
-		if (!reader.ParseFromFile(path.data(), conf))
-		{
-			if (!reader.Error().empty())
-				throw std::runtime_error(fmt::format("tinyobjloader: {}", reader.Error()));
-			else
-				throw std::runtime_error("tinyobjloader: Unknown error");
-		}
-
-		if (!reader.Warning().empty())
-			fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold, "tinyobjloader: {}\n", reader.Warning());
-
-		auto& attrib = reader.GetAttrib();
-		auto& shapes = reader.GetShapes();
-
-		for (const auto& shape : shapes)
-		{
-			size_t index_offset = 0;
-			for (const auto& fv : shape.mesh.num_face_vertices)
-			{
-				for (size_t v = 0; v < fv; v++)
-				{
-					Vertex vtx{ .color = { 1.0f, 1.0f, 1.0f } };
-					tinyobj::index_t ix = shape.mesh.indices[index_offset + v];
-					vtx.pos.x = attrib.vertices[3 * ix.vertex_index + 0];
-					vtx.pos.y = attrib.vertices[3 * ix.vertex_index + 1];
-					vtx.pos.z = attrib.vertices[3 * ix.vertex_index + 2];
-					m_vertices.emplace_back(std::move(vtx));
-					m_indices.emplace_back(ix.vertex_index);
-				}
-
-				index_offset += fv;
-			}
-		}
+		const auto& vertices = m_mesh.getVertices();
+		const auto& indices = m_mesh.getIndices();
 
 		// create buffers and copy data
-		const VkDeviceSize vBufSize = m_vertices.size() * sizeof(Vertex);
-		const VkDeviceSize iBufSize = m_indices.size() * sizeof(uint32_t);
+		const VkDeviceSize vBufSize = vertices.size() * sizeof(svr::Mesh::Vertex);
+		const VkDeviceSize iBufSize = indices.size() * sizeof(uint32_t);
 		const VkDeviceSize sBufSize = std::max(vBufSize, iBufSize);
 
 		createBuffer(vBufSize,
@@ -1205,11 +1134,21 @@ private:
 			m_stagingBuffer, m_stagingBufferMemory);
 
 		vkMapMemory(m_device, m_stagingBufferMemory, 0, sBufSize, 0, &m_pStagingBuffer);
-		std::memcpy(m_pStagingBuffer, m_vertices.data(), vBufSize);
+		std::memcpy(m_pStagingBuffer, vertices.data(), vBufSize);
 		copyBuffer(m_stagingBuffer, m_vertexBuffer, vBufSize);
 
-		std::memcpy(m_pStagingBuffer, m_indices.data(), iBufSize);
+		std::memcpy(m_pStagingBuffer, indices.data(), iBufSize);
 		copyBuffer(m_stagingBuffer, m_indexBuffer, iBufSize);
+	}
+
+	void initCamera()
+	{
+		const float aspect = static_cast<float>(m_swapchainExtent.width) / static_cast<float>(m_swapchainExtent.height);
+
+		m_camera.setPos(0.0f, 0.0f, -5.0f);
+		m_camera.setLookingAt(0.0f, 0.0f, 0.0f);
+		m_camera.setFov(glm::radians(70.0f));
+		m_camera.setAspectRatio(aspect);
 	}
 
 	void update()
@@ -1222,21 +1161,7 @@ private:
 				m_isRunning = false;
 		}
 
-		glm::mat4 model = glm::identity<glm::mat4>();
-
-		glm::mat4 view = glm::lookAt(
-			glm::vec3(0.0f, 0.0f, -3.0f),
-			glm::vec3(0.0f, 0.0f, 0.0f),
-			glm::vec3(0.0f, 1.0f, 0.0f)
-		);
-
-		glm::mat4 proj = glm::perspective(
-			glm::radians<float>(70),
-			(float)m_swapchainExtent.width / (float)m_swapchainExtent.height,
-			0.1f, 100.0f
-		);
-
-		m_mvp = glm::transpose(proj * view * model);
+		m_mvp = glm::transpose(m_camera.getViewProjection() * m_mesh.getModel());
 	}
 
 	void cleanup()
@@ -1402,7 +1327,7 @@ private:
 
 		vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &m_mvp);
 
-		vkCmdDrawIndexed(cmdBuf, m_indices.size(), 1, 0, 0, 0);
+		vkCmdDrawIndexed(cmdBuf, m_mesh.getIndices().size(), 1, 0, 0, 0);
 
 		auto* drawData = ImGui::GetDrawData();
 		ImGui_ImplVulkan_RenderDrawData(drawData, cmdBuf);
@@ -1448,7 +1373,7 @@ private:
 		ImGui::NewFrame();
 
 		ImGui::Begin("Test");
-		ImGui::Text("Nigga");
+		ImGui::Text("Hello World");
 		ImGui::End();
 		ImGui::Render();
 
