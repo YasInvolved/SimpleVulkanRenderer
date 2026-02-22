@@ -2,7 +2,7 @@ set(OUT_DIR ${CMAKE_BINARY_DIR}/bin)
 
 add_subdirectory(shaders)
 
-add_executable(SimpleVulkanRenderer main.cpp "pch.h")
+add_executable(SimpleVulkanRenderer main.cpp "pch.h" "Camera.h" "Mesh.h" "mesh.cpp")
 
 set_target_properties(SimpleVulkanRenderer PROPERTIES
 	CXX_STANDARD 20
@@ -18,7 +18,7 @@ set_target_properties(SDL3-shared PROPERTIES
 )
 
 target_link_libraries(SimpleVulkanRenderer 
-	PRIVATE SDL3::SDL3 volk::volk fmt::fmt glm::glm SimpleVulkanRenderer_shaders tinyobjloader argparse::argparse
+	PRIVATE SDL3::SDL3 fmt::fmt glm::glm SimpleVulkanRenderer_shaders tinyobjloader argparse::argparse volk::volk Imgui
 )
 
 target_precompile_headers(SimpleVulkanRenderer
@@ -26,5 +26,6 @@ target_precompile_headers(SimpleVulkanRenderer
 )
 
 target_compile_definitions(SimpleVulkanRenderer
+	PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK
 	PRIVATE $<$<CONFIG:Debug>:SVR_DEBUG>
 )
