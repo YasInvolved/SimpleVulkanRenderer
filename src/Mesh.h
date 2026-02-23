@@ -56,12 +56,29 @@ namespace svr
 		vertices_t m_vertices;
 		indices_t m_indices;
 
+		glm::vec3 m_position;
+		glm::quat m_orientation;
+		glm::vec3 m_rotProxy;
+		glm::vec3 m_scale;
+
 	public:
+		Mesh();
+
 		static Mesh loadObjMesh(const std::string_view path);
 
 		const vertices_t& getVertices() const { return m_vertices; }
 		const indices_t& getIndices() const { return m_indices; }
+		
+		void translate(const glm::vec3& translation);
+		void translate(float x, float y, float z);
 
-		glm::mat4 getModel() const { return glm::identity<glm::mat4>(); } // TODO: implement transformations
+		void rotate(float angle, const glm::vec3& axis);
+
+		void scale(const glm::vec3& scale);
+		void scale(float x, float y, float z);
+
+		glm::mat4 getModel() const;
+
+		void renderImGuiMenu();
 	};
 }

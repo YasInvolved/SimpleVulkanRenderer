@@ -80,3 +80,70 @@ Mesh Mesh::loadObjMesh(const std::string_view path)
 
 	return mesh;
 }
+
+Mesh::Mesh()
+	: m_position(0.0f, 0.0f, 0.0f),
+	m_rotProxy(0.0f, 0.0f, 0.0f),
+	m_scale(1.0f, 1.0f, 1.0f)
+{
+	rotate(0.0f, { 1.0f, 1.0f, 1.0f });
+}
+
+void Mesh::translate(const glm::vec3& translation)
+{
+	m_position += translation;
+}
+
+void Mesh::translate(float x, float y, float z)
+{
+	m_position.x += x;
+	m_position.y += y;
+	m_position.z += z;
+}
+
+void Mesh::rotate(float angle, const glm::vec3& axis)
+{
+	m_orientation = glm::angleAxis(angle, axis);
+}
+
+void Mesh::scale(const glm::vec3& scale)
+{
+	m_scale += scale;
+}
+
+void Mesh::scale(float x, float y, float z)
+{
+	m_scale.x += x;
+	m_scale.y += y;
+	m_scale.z += z;
+}
+
+glm::mat4 Mesh::getModel() const
+{
+	glm::mat4 translationM = glm::translate(glm::identity<glm::mat4>(), m_position);
+	glm::mat4 rotationM = glm::mat4_cast(m_orientation);
+	glm::mat4 scaleM = glm::scale(glm::identity<glm::mat4>(), m_scale);
+
+	return translationM * rotationM * scaleM;
+}
+
+void Mesh::renderImGuiMenu()
+{
+	ImGui::BeginChild(
+		"mesh_controls", 
+		ImVec2(0, 0), 
+		ImGuiChildFlags_AutoResizeX | 
+		ImGuiChildFlags_AutoResizeY |
+		ImGuiChildFlags_AlwaysAutoResize
+	);
+
+	ImGui::Text("Mesh");
+	ImGui::Separator();
+	ImGui::DragFloat3("Position", reinterpret_cast<float*>(&m_position.x));
+	
+	if (ImGui::DragFloat3("Rotation", reinterpret_cast<float*>(&m_rotProxy.x), 1.0f, -180.0f, 180.0f))
+		m_orientation = glm::quat(glm::radians(m_rotProxy));
+
+	ImGui::DragFloat3("Scale", reinterpret_cast<float*>(&m_scale.x), 1.0f, 0.001f, INFINITY);
+	ImGui::EndChild();
+}

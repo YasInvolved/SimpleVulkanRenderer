@@ -1,5 +1,4 @@
 #include <shaders.h>
-#include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <backends/imgui_impl_sdl3.h>
 
@@ -1372,9 +1371,10 @@ private:
 		ImGui_ImplSDL3_NewFrame();
 		ImGui::NewFrame();
 
-		ImGui::Begin("Test");
-		ImGui::Text("Hello World");
+		ImGui::Begin("Controls");
+		m_mesh.renderImGuiMenu();
 		ImGui::End();
+
 		ImGui::Render();
 
 		recordCommandBuffer(currentCmdBuf, imgIx);

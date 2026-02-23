@@ -18,6 +18,9 @@
 #include <argparse/argparse.hpp>
 #include <tiny_obj_loader.h>
 
+#include <imgui.h>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/hash.hpp>
+#include <glm/gtc/quaternion.hpp>
