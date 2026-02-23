@@ -8,6 +8,7 @@ namespace svr
 		struct Vertex
 		{
 			glm::vec3 pos;
+			glm::vec3 normal;
 			glm::vec3 color;
 
 			static constexpr VkVertexInputBindingDescription getBindingDescription()
@@ -22,7 +23,7 @@ namespace svr
 				return desc;
 			}
 
-			using VertAttrDesc_t = std::array<VkVertexInputAttributeDescription, 2>;
+			using VertAttrDesc_t = std::array<VkVertexInputAttributeDescription, 3>;
 			static constexpr VertAttrDesc_t getAttributeDesc()
 			{
 				constexpr VertAttrDesc_t desc =
@@ -36,6 +37,12 @@ namespace svr
 						},
 						{
 							.location = 1,
+							.binding = 0,
+							.format = VK_FORMAT_R32G32B32_SFLOAT,
+							.offset = offsetof(Vertex, normal),
+						},
+						{
+							.location = 2,
 							.binding = 0,
 							.format = VK_FORMAT_R32G32B32_SFLOAT,
 							.offset = offsetof(Vertex, color),

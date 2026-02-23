@@ -1,0 +1,9 @@
+[*]
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{hlsl,vert,frag}]
+charset = utf-8
+end_of_line = crlf

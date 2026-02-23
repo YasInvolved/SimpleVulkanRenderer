@@ -19,6 +19,7 @@ namespace std
 		{
 			size_t seed = 0;
 			seed ^= hash<glm::vec3>()(vertex.pos) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+			seed ^= hash<glm::vec3>()(vertex.normal) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 			seed ^= hash<glm::vec3>()(vertex.color) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 			return seed;
 		}
@@ -65,6 +66,13 @@ Mesh Mesh::loadObjMesh(const std::string_view path)
 				vtx.pos.x = attrib.vertices[3 * ix.vertex_index + 0];
 				vtx.pos.y = attrib.vertices[3 * ix.vertex_index + 1];
 				vtx.pos.z = attrib.vertices[3 * ix.vertex_index + 2];
+
+				if (ix.normal_index >= 0)
+				{
+					vtx.normal.x = attrib.normals[3 * ix.normal_index + 0];
+					vtx.normal.y = attrib.normals[3 * ix.normal_index + 1];
+					vtx.normal.z = attrib.normals[3 * ix.normal_index + 2];
+				}
 
 				if (dedupeMap.count(vtx) == 0) {
 					dedupeMap[vtx] = static_cast<uint32_t>(mesh.m_vertices.size());
