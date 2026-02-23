@@ -5,20 +5,21 @@ namespace svr
 	class Camera
 	{
 	private:
-		static constexpr glm::vec3 UP = { 0.0f, 1.0f, 0.0f };
+		static constexpr glm::vec3 UP = { 0.0f, -1.0f, 0.0f };
 		static constexpr float NEAR = 0.1f;
 		static constexpr float FAR = 100.0f;
 
 		glm::vec3 m_pos;
 		glm::vec3 m_lookingAt;
-		float m_fov;
+		
+		uint32_t m_fov;
 		float m_aspect;
 
 	public:
 		Camera()
 			: m_pos(0.0f),
 			m_lookingAt(0.0f),
-			m_fov(0.0f),
+			m_fov(0u),
 			m_aspect(0.0f)
 		{ }
 
@@ -30,8 +31,8 @@ namespace svr
 		void setLookingAt(const glm::vec3& lookingAt) { m_lookingAt = lookingAt; }
 		void setLookingAt(float x, float y, float z) { m_lookingAt = { x, y, z }; }
 
-		float getFov() const { return m_fov; }
-		void setFov(float fov) { m_fov = fov; }
+		uint32_t getFov() const { return m_fov; }
+		void setFov(uint32_t fov) { m_fov = fov; }
 
 		float getAspectRatio() const { return m_aspect; }
 		void setAspectRatio(float aspect) { m_aspect = aspect; }
@@ -39,9 +40,38 @@ namespace svr
 		glm::mat4 getViewProjection() const
 		{
 			glm::mat4 view = glm::lookAtRH(m_pos, m_lookingAt, UP);
-			glm::mat4 proj = glm::perspective(m_fov, m_aspect, 0.1f, 100.0f);
+			glm::mat4 proj = glm::perspective(glm::radians(static_cast<float>(m_fov)), m_aspect, 0.1f, 100.0f);
 
 			return proj * view;
+		}
+
+		void renderImGuiMenu()
+		{
+			ImGui::BeginChild(
+				"camera_menu", 
+				ImVec2(0, 0), 
+				ImGuiChildFlags_AutoResizeX |
+				ImGuiChildFlags_AutoResizeY |
+				ImGuiChildFlags_AlwaysAutoResize
+			);
+
+			ImGui::Text("Camera");
+			ImGui::Separator();
+			ImGui::DragFloat3("Position", reinterpret_cast<float*>(&m_pos.x));
+			ImGui::DragFloat3("Looking At", reinterpret_cast<float*>(&m_lookingAt.x));
+
+			constexpr uint32_t FOV_DRAG_MIN = 1u;
+			constexpr uint32_t FOV_DRAG_MAX = 140u;
+			ImGui::DragScalar(
+				"FOV", 
+				ImGuiDataType_U32, 
+				reinterpret_cast<void*>(&m_fov), 
+				1.0f, 
+				(const void*)&FOV_DRAG_MIN, 
+				(const void*)&FOV_DRAG_MAX
+			);
+
+			ImGui::EndChild();
 		}
 	};
 }

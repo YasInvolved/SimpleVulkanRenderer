@@ -1146,7 +1146,7 @@ private:
 
 		m_camera.setPos(0.0f, 3.0f, -5.0f);
 		m_camera.setLookingAt(0.0f, 0.0f, 0.0f);
-		m_camera.setFov(glm::radians(70.0f));
+		m_camera.setFov(70u);
 		m_camera.setAspectRatio(aspect);
 	}
 
@@ -1373,6 +1373,7 @@ private:
 
 		ImGui::Begin("Controls");
 		m_mesh.renderImGuiMenu();
+		m_camera.renderImGuiMenu();
 		ImGui::End();
 
 		ImGui::Render();
