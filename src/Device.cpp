@@ -170,6 +170,64 @@ VkFence Device::createFence(bool signaled) const
 	return fence;
 }
 
+VkImage Device::createImage(const VkImageCreateInfo& createInfo, VkMemoryPropertyFlags memoryProperties) const
+{
+	failIfNotInitialized();
+
+	const size_t oldSize = m_allocatedMemory.size();
+	const size_t newSize = oldSize + 1;
+	m_allocatedMemory.resize(newSize);
+
+	VkImage image;
+	if (vkCreateImage(m_device, &createInfo, nullptr, &image) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create an image");
+
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(m_device, image, &memRequirements);
+
+	const VkMemoryAllocateInfo allocInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.allocationSize = memRequirements.size,
+		.memoryTypeIndex = findMemoryType(
+			memRequirements.memoryTypeBits,
+			memoryProperties
+		)
+	};
+
+	VkDeviceMemory* const ptr = m_allocatedMemory.data() + oldSize;
+	if (vkAllocateMemory(m_device, &allocInfo, nullptr, ptr) != VK_SUCCESS)
+		throw std::runtime_error("Failed to allocate image's memory");
+
+	if (vkBindImageMemory(m_device, image, *ptr, 0) != VK_SUCCESS)
+		throw std::runtime_error("Failed to bind memory to the image");
+
+	return image;
+}
+
+VkImageView Device::createImageView(VkImage image, const ImageViewCreateInfo& createInfo) const
+{
+	failIfNotInitialized();
+
+	const VkImageViewCreateInfo vkCreateInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.image = image,
+		.viewType = createInfo.viewType,
+		.format = createInfo.format,
+		.subresourceRange = createInfo.subresourceRange
+	};
+
+	VkImageView view;
+	if (vkCreateImageView(m_device, &vkCreateInfo, nullptr, &view) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create image view");
+
+	return view;
+}
+
 CommandPool Device::createCommandPool(uint32_t queueFamilyIndex) const
 {
 	failIfNotInitialized();
@@ -216,6 +274,27 @@ void Device::destroy()
 	if (!m_initialized)
 		return;
 
+	for (auto memory : m_allocatedMemory)
+		vkFreeMemory(m_device, memory, nullptr);
+
 	vkDestroyDevice(m_device, nullptr);
 	m_initialized = false;
+}
+
+uint32_t Device::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const
+{
+	auto& memoryProperties = getMemoryProperties();
+
+	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++)
+	{
+		auto memoryType = memoryProperties.memoryTypes[i];
+
+		if (typeFilter & (1 << i) &&
+			BITFIELD_TRUE(memoryType.propertyFlags, properties))
+		{
+			return i;
+		}
+	}
+
+	throw std::runtime_error("Failed to find a suitable memory type");
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#define BITFIELD_TRUE(x, y) (x & y) == y
+
 #include "ValueCache.h"
 #include "CommandPool.h"
 
@@ -32,6 +34,13 @@ namespace svr
 			VkSwapchainKHR oldSwapchain;
 		};
 
+		struct ImageViewCreateInfo
+		{
+			VkImageViewType viewType;
+			VkFormat format;
+			VkImageSubresourceRange subresourceRange;
+		};
+
 	private:
 		VkPhysicalDevice m_physicalDevice;
 		VkDevice m_device;
@@ -41,6 +50,8 @@ namespace svr
 		mutable ValueCache<VkPhysicalDeviceFeatures2> m_features;
 		mutable ValueCache<VkPhysicalDeviceMemoryProperties> m_memProperties;
 		mutable ValueCache<std::vector<VkQueueFamilyProperties>> m_queueFamilies;
+
+		mutable std::vector<VkDeviceMemory> m_allocatedMemory;
 
 		bool m_initialized;
 
@@ -70,12 +81,17 @@ namespace svr
 		VkSemaphore createSemaphore() const;
 		VkFence createFence(bool signaled = false) const;
 
+		VkImage createImage(const VkImageCreateInfo& createInfo, VkMemoryPropertyFlags memoryProperties) const;
+		VkImageView createImageView(VkImage image, const ImageViewCreateInfo& createInfo) const;
+
 		CommandPool createCommandPool(uint32_t queueFamilyindex) const;
 
 		bool initialize(const InitInfo& info);
 		void destroy();
 
 	private:
+		uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
+
 		inline void failIfNotInitialized() const
 		{
 			if (!m_initialized)

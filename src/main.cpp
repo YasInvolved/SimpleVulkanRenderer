@@ -94,11 +94,6 @@ public:
 		: m_modelPath(modelPath)
 	{}
 
-	~Application()
-	{
-		cleanup();
-	}
-
 	void run()
 	{
 		initialize();
@@ -108,6 +103,8 @@ public:
 			update();
 			render();
 		}
+
+		cleanup();
 	}
 
 private:
@@ -888,36 +885,10 @@ private:
 		};
 
 		VkDevice device = m_device->getDevice();
+		m_depthImage = m_device->createImage(diCreateInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-		if (vkCreateImage(device, &diCreateInfo, nullptr, &m_depthImage) != VK_SUCCESS)
-			throw std::runtime_error("Failed to create depth image");
-
-		VkMemoryRequirements diMemRequirements;
-		vkGetImageMemoryRequirements(device, m_depthImage, &diMemRequirements);
-
-		const VkMemoryAllocateInfo allocInfo =
+		svr::Device::ImageViewCreateInfo viewCreateInfo =
 		{
-			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			.pNext = nullptr,
-			.allocationSize = diMemRequirements.size,
-			.memoryTypeIndex = findMemoryType(
-				diMemRequirements.memoryTypeBits,
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-			),
-		};
-
-		if (vkAllocateMemory(device, &allocInfo, nullptr, &m_depthImageMemory) != VK_SUCCESS)
-			throw std::runtime_error("Failed to allocate memory for depth image");
-
-		if (vkBindImageMemory(device, m_depthImage, m_depthImageMemory, 0) != VK_SUCCESS)
-			throw std::runtime_error("Failed to bind memory for depth image");
-
-		const VkImageViewCreateInfo diViewCreateInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0,
-			.image = m_depthImage,
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
 			.format = m_depthStencilFormat,
 			.subresourceRange =
@@ -930,8 +901,7 @@ private:
 			}
 		};
 
-		if (vkCreateImageView(device, &diViewCreateInfo, nullptr, &m_depthImageView) != VK_SUCCESS)
-			throw std::runtime_error("Failed to create image view for depth image");
+		m_depthImageView = m_device->createImageView(m_depthImage, viewCreateInfo);
 	}
 	
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const
@@ -1073,7 +1043,6 @@ private:
 		vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
 		vkDestroyImageView(device, m_depthImageView, nullptr);
 		vkDestroyImage(device, m_depthImage, nullptr);
-		vkFreeMemory(device, m_depthImageMemory, nullptr);
 		vkDestroyPipeline(device, m_graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, m_pipelineLayout, nullptr);
 
