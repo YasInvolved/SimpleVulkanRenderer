@@ -87,6 +87,89 @@ const std::vector<VkQueueFamilyProperties>& Device::getQueueFamilyProperties() c
 	return value;
 }
 
+const std::vector<VkSurfaceFormatKHR> Device::getSurfaceFormats(VkSurfaceKHR surface) const
+{
+	uint32_t count;
+	std::vector<VkSurfaceFormatKHR> formats;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, surface, &count, nullptr);
+	formats.resize(count);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, surface, &count, formats.data());
+
+	return formats;
+}
+
+const std::vector<VkPresentModeKHR> Device::getPresentModes(VkSurfaceKHR surface) const
+{
+	uint32_t count;
+	std::vector<VkPresentModeKHR> modes;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, surface, &count, nullptr);
+	modes.resize(count);
+	vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, surface, &count, modes.data());
+
+	return modes;
+}
+
+VkSwapchainKHR Device::createSwapchain(const SwapchainCreateInfo& createInfo) const
+{
+	failIfNotInitialized();
+
+	VkSwapchainKHR swapchain;
+	const VkSwapchainCreateInfoKHR info =
+	{
+		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+		.pNext = nullptr,
+		.flags = 0,
+		.surface = createInfo.surface,
+		.minImageCount = createInfo.minImageCount,
+		.imageFormat = createInfo.imageFormat,
+		.imageColorSpace = createInfo.colorSpace,
+		.imageExtent = createInfo.imageExtent,
+		.imageArrayLayers = 1,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.queueFamilyIndexCount = createInfo.queueFamilyIndicesCount,
+		.pQueueFamilyIndices = createInfo.queueFamilyIndices,
+		.preTransform = createInfo.transform,
+		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+		.presentMode = createInfo.presentMode,
+		.clipped = VK_FALSE,
+		.oldSwapchain = createInfo.oldSwapchain
+	};
+
+	if (vkCreateSwapchainKHR(m_device, &info, nullptr, &swapchain) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create a swapchain");
+
+	return swapchain;
+}
+
+VkSemaphore Device::createSemaphore() const
+{
+	failIfNotInitialized();
+
+	constexpr VkSemaphoreCreateInfo createInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+
+	VkSemaphore semaphore;
+	if (vkCreateSemaphore(m_device, &createInfo, nullptr, &semaphore) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create a semaphore");
+
+	return semaphore;
+}
+
+VkFence Device::createFence(bool signaled) const
+{
+	failIfNotInitialized();
+
+	VkFenceCreateInfo createInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr };
+	if (signaled)
+		createInfo.flags |= VK_FENCE_CREATE_SIGNALED_BIT;
+
+	VkFence fence;
+	if (vkCreateFence(m_device, &createInfo, nullptr, &fence) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create a fence");
+
+	return fence;
+}
+
 bool Device::initialize(const InitInfo& info)
 {
 	const VkDeviceCreateInfo createInfo

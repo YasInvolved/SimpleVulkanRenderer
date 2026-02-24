@@ -73,9 +73,9 @@ private:
 	VkDeviceMemory m_indexBufferMemory = VK_NULL_HANDLE;
 
 	// sync
-	std::vector<VkSemaphore> m_imageAvailableSemaphores;
-	std::vector<VkSemaphore> m_renderingFinishedSemaphores;
-	std::vector<VkFence> m_inFlightFences;
+	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_imageAvailableSemaphores;
+	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_renderingFinishedSemaphores;
+	std::array<VkFence, MAX_FRAMES_IN_FLIGHT> m_inFlightFences;
 
 	svr::Mesh m_mesh;
 	svr::Camera m_camera;
@@ -427,34 +427,6 @@ private:
 		vkGetDeviceQueue(device, m_gfxQueueIx, 0, &m_gfxQueue);
 	}
 
-	std::vector<VkSurfaceFormatKHR> getSurfaceFormats(VkSurfaceKHR surface) const
-	{
-		VkPhysicalDevice dev = m_device->getPhysicalDevice();
-
-		uint32_t count = 0;
-		vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &count, nullptr);
-
-		std::vector<VkSurfaceFormatKHR> formats(count);
-		if (vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface, &count, formats.data()) != VK_SUCCESS)
-			throw std::runtime_error("vkGetPhysicalDeviceSurfaceFormatsKHR failed.");
-
-		return formats;
-	}
-
-	std::vector<VkPresentModeKHR> getSurfacePresentModes(VkSurfaceKHR surface) const
-	{
-		VkPhysicalDevice dev = m_device->getPhysicalDevice();
-
-		uint32_t count = 0;
-		vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &count, nullptr);
-
-		std::vector<VkPresentModeKHR> pms(count);
-		if (vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface, &count, pms.data()) != VK_SUCCESS)
-			throw std::runtime_error("vkGetPhysicalDeviceSurfacePresentModesKHR failed.");
-
-		return pms;
-	}
-
 	void initSwapchain()
 	{
 		VkDevice device = m_device->getDevice();
@@ -463,8 +435,8 @@ private:
 			throw std::runtime_error("Failed to create a surface");
 
 		auto& sfCaps = m_device->getSurfaceCapabilities(m_surface);
-		auto sfFormats = getSurfaceFormats(m_surface);
-		auto sfPms = getSurfacePresentModes(m_surface);
+		auto sfFormats = m_device->getSurfaceFormats(m_surface);
+		auto sfPms = m_device->getPresentModes(m_surface);
 
 		uint32_t minImageCount = MAX_FRAMES_IN_FLIGHT;
 		if (sfCaps.maxImageCount > 0)
@@ -489,30 +461,21 @@ private:
 
 		m_swapchainExtent = sfCaps.currentExtent;
 
-		const VkSwapchainCreateInfoKHR scCreateInfo =
+		const svr::Device::SwapchainCreateInfo createInfo =
 		{
-			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-			.pNext = nullptr,
-			.flags = 0,
 			.surface = m_surface,
 			.minImageCount = minImageCount,
 			.imageFormat = m_swapchainImgFormat.format,
-			.imageColorSpace = m_swapchainImgFormat.colorSpace,
+			.colorSpace = m_swapchainImgFormat.colorSpace,
 			.imageExtent = m_swapchainExtent,
-			.imageArrayLayers = 1,
-			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-			.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			.queueFamilyIndexCount = 1,
-			.pQueueFamilyIndices = &m_gfxQueueIx,
-			.preTransform = sfCaps.currentTransform,
-			.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+			.queueFamilyIndicesCount = 1,
+			.queueFamilyIndices = &m_gfxQueueIx,
+			.transform = sfCaps.currentTransform,
 			.presentMode = m_currentPresentMode,
-			.clipped = VK_FALSE,
 			.oldSwapchain = VK_NULL_HANDLE
 		};
 
-		if (vkCreateSwapchainKHR(device, &scCreateInfo, nullptr, &m_swapchain) != VK_SUCCESS)
-			throw std::runtime_error("Failed to create a swapchain");
+		m_swapchain = m_device->createSwapchain(createInfo);
 
 		vkGetSwapchainImagesKHR(device, m_swapchain, &m_swapchainImageCount, nullptr);
 
@@ -555,31 +518,11 @@ private:
 	{
 		VkDevice device = m_device->getDevice();
 
-		m_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-		m_renderingFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-		m_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-
-		const VkSemaphoreCreateInfo sCreateInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-		};
-
-		const VkFenceCreateInfo fCreateInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-			.flags = VK_FENCE_CREATE_SIGNALED_BIT,
-		};
-
 		for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			if (vkCreateSemaphore(device, &sCreateInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS)
-				throw std::runtime_error("Failed to create a semaphore");
-
-			if (vkCreateSemaphore(device, &sCreateInfo, nullptr, &m_renderingFinishedSemaphores[i]) != VK_SUCCESS)
-				throw std::runtime_error("Failed to create a semaphore");
-
-			if (vkCreateFence(device, &fCreateInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS)
-				throw std::runtime_error("Failed to create a fence");
+			m_imageAvailableSemaphores[i] = m_device->createSemaphore();
+			m_renderingFinishedSemaphores[i] = m_device->createSemaphore();
+			m_inFlightFences[i] = m_device->createFence(true);
 		}
 	}
 

@@ -17,6 +17,20 @@ namespace svr
 			const VkPhysicalDeviceDynamicRenderingFeatures* dynamicRenderingFeatures;
 		};
 
+		struct SwapchainCreateInfo
+		{
+			VkSurfaceKHR surface;
+			uint32_t minImageCount;
+			VkFormat imageFormat;
+			VkColorSpaceKHR colorSpace;
+			VkExtent2D imageExtent;
+			uint32_t queueFamilyIndicesCount;
+			const uint32_t* queueFamilyIndices;
+			VkSurfaceTransformFlagBitsKHR transform;
+			VkPresentModeKHR presentMode;
+			VkSwapchainKHR oldSwapchain;
+		};
+
 	private:
 		VkPhysicalDevice m_physicalDevice;
 		VkDevice m_device;
@@ -48,8 +62,21 @@ namespace svr
 		const VkPhysicalDeviceFeatures2& getFeatures() const;
 		const VkPhysicalDeviceMemoryProperties& getMemoryProperties() const;
 		const std::vector<VkQueueFamilyProperties>& getQueueFamilyProperties() const;
+		const std::vector<VkSurfaceFormatKHR> getSurfaceFormats(VkSurfaceKHR surface) const;
+		const std::vector<VkPresentModeKHR> getPresentModes(VkSurfaceKHR surface) const;
+
+		VkSwapchainKHR createSwapchain(const SwapchainCreateInfo& createInfo) const;
+		VkSemaphore createSemaphore() const;
+		VkFence createFence(bool signaled = false) const;
 
 		bool initialize(const InitInfo& info);
 		void destroy();
+
+	private:
+		inline void failIfNotInitialized() const
+		{
+			if (!m_initialized)
+				throw std::runtime_error("The device should be initialized to perform this action");
+		}
 	};
 }
