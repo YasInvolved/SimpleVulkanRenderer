@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ValueCache.h"
+#include "CommandPool.h"
 
 namespace svr
 {
@@ -68,6 +69,8 @@ namespace svr
 		VkSwapchainKHR createSwapchain(const SwapchainCreateInfo& createInfo) const;
 		VkSemaphore createSemaphore() const;
 		VkFence createFence(bool signaled = false) const;
+
+		CommandPool createCommandPool(uint32_t queueFamilyindex) const;
 
 		bool initialize(const InitInfo& info);
 		void destroy();

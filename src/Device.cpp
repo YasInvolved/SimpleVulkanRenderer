@@ -170,6 +170,24 @@ VkFence Device::createFence(bool signaled) const
 	return fence;
 }
 
+CommandPool Device::createCommandPool(uint32_t queueFamilyIndex) const
+{
+	failIfNotInitialized();
+
+	const VkCommandPoolCreateInfo createInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+		.queueFamilyIndex = queueFamilyIndex
+	};
+
+	VkCommandPool pool;
+	if (vkCreateCommandPool(m_device, &createInfo, nullptr, &pool) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create a command pool");
+
+	return CommandPool(m_device, pool);
+}
+
 bool Device::initialize(const InitInfo& info)
 {
 	const VkDeviceCreateInfo createInfo

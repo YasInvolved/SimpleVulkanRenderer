@@ -3,6 +3,7 @@
 #include <backends/imgui_impl_sdl3.h>
 
 #include "Device.h"
+#include "CommandPool.h"
 #include "Camera.h"
 #include "Mesh.h"
 
@@ -54,8 +55,9 @@ private:
 	VkDeviceMemory m_depthImageMemory = VK_NULL_HANDLE;
 	VkImageView m_depthImageView = VK_NULL_HANDLE;
 
-	VkCommandPool m_commandPool = VK_NULL_HANDLE;
-	std::vector<VkCommandBuffer> m_commandBuffers;
+	svr::CommandPool m_commandPool;
+	std::span<VkCommandBuffer> m_inFlightCmdBuffers;
+	VkCommandBuffer m_transferCommandBuffer;
 
 	VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
 	VkPipelineRenderingCreateInfo m_pipelineRenderingCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
@@ -73,9 +75,9 @@ private:
 	VkDeviceMemory m_indexBufferMemory = VK_NULL_HANDLE;
 
 	// sync
-	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_imageAvailableSemaphores;
-	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_renderingFinishedSemaphores;
-	std::array<VkFence, MAX_FRAMES_IN_FLIGHT> m_inFlightFences;
+	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_imageAvailableSemaphores{ VK_NULL_HANDLE };
+	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_renderingFinishedSemaphores{ VK_NULL_HANDLE };
+	std::array<VkFence, MAX_FRAMES_IN_FLIGHT> m_inFlightFences{ VK_NULL_HANDLE };
 
 	svr::Mesh m_mesh;
 	svr::Camera m_camera;
@@ -543,31 +545,10 @@ private:
 
 	void initCmdPoolAndBuffers()
 	{
-		VkDevice device = m_device->getDevice();
-
-		const VkCommandPoolCreateInfo createInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-			.queueFamilyIndex = m_gfxQueueIx
-		};
-
-		if (vkCreateCommandPool(device, &createInfo, nullptr, &m_commandPool) != VK_SUCCESS)
-			throw std::runtime_error("Failed to create a command pool");
-
-		m_commandBuffers.resize(m_swapchainImageCount);
-		
-		const VkCommandBufferAllocateInfo allocInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			.commandPool = m_commandPool,
-			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			.commandBufferCount = m_swapchainImageCount,
-		};
-
-		if (vkAllocateCommandBuffers(device, &allocInfo, m_commandBuffers.data()) != VK_SUCCESS)
-			throw std::runtime_error("Failed to allocate command buffers");
+		m_commandPool = m_device->createCommandPool(m_gfxQueueIx);
+		auto tmp = m_commandPool.allocCommandBuffers(VK_COMMAND_BUFFER_LEVEL_PRIMARY, MAX_FRAMES_IN_FLIGHT + 1);
+		m_inFlightCmdBuffers = std::span<VkCommandBuffer>(tmp.begin(), tmp.end() - 1);
+		m_transferCommandBuffer = *tmp.rbegin();
 	}
 
 	VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode) const
@@ -990,44 +971,27 @@ private:
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
 	{
-		VkDevice device = m_device->getDevice();
+		constexpr VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 
-		const VkCommandBufferAllocateInfo cmdBufAllocInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			.commandPool = m_commandPool,
-			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			.commandBufferCount = 1
-		};
-
-		VkCommandBuffer cmdBuf;
-		vkAllocateCommandBuffers(device, &cmdBufAllocInfo, &cmdBuf);
-
-		constexpr VkCommandBufferBeginInfo beginInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-		};
-
-		vkBeginCommandBuffer(cmdBuf, &beginInfo);
+		vkBeginCommandBuffer(m_transferCommandBuffer, &beginInfo);
 
 		VkBufferCopy copyRegion{};
 		copyRegion.srcOffset = 0;
 		copyRegion.dstOffset = 0;
 		copyRegion.size = size;
-		vkCmdCopyBuffer(cmdBuf, srcBuffer, dstBuffer, 1, &copyRegion);
+		vkCmdCopyBuffer(m_transferCommandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 
-		vkEndCommandBuffer(cmdBuf);
+		vkEndCommandBuffer(m_transferCommandBuffer);
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &cmdBuf;
+		submitInfo.pCommandBuffers = &m_transferCommandBuffer;
 
 		vkQueueSubmit(m_gfxQueue, 1, &submitInfo, VK_NULL_HANDLE);
 		vkQueueWaitIdle(m_gfxQueue);
 
-		vkFreeCommandBuffers(device, m_commandPool, 1, &cmdBuf);
+		vkResetCommandBuffer(m_transferCommandBuffer, 0);
 	}
 
 	void loadObj(const std::string_view path)
@@ -1123,7 +1087,7 @@ private:
 
 		vkDestroySwapchainKHR(device, m_swapchain, nullptr);
 		SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
-		vkDestroyCommandPool(device, m_commandPool, nullptr);
+		m_commandPool.destroy();
 		m_device->destroy();
 		vkDestroyDebugUtilsMessengerEXT(m_pInstance, m_debugMsger, nullptr);
 		vkDestroyInstance(m_pInstance, nullptr);
@@ -1293,7 +1257,7 @@ private:
 
 		vkResetFences(device, 1, &m_inFlightFences[m_currentFrame]);
 
-		VkCommandBuffer currentCmdBuf = m_commandBuffers[m_currentFrame];
+		VkCommandBuffer currentCmdBuf =	m_inFlightCmdBuffers[m_currentFrame];
 		vkResetCommandBuffer(currentCmdBuf, 0);
 
 		ImGui_ImplVulkan_NewFrame();
