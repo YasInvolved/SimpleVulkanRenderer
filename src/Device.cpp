@@ -200,7 +200,8 @@ VkImage Device::createImage(const VkImageCreateInfo& createInfo, VkMemoryPropert
 	if (vkBindImageMemory(m_device, image, memory, 0) != VK_SUCCESS)
 		throw std::runtime_error("Failed to bind memory to the image");
 
-	m_allocatedMemory[image] = std::move(memory);
+	m_allocations.emplace_back(std::move(memory));
+	m_buffersAndImagesMemory[image] = m_allocations.size() - 1;
 
 	return image;
 }
@@ -263,15 +264,70 @@ VkBuffer Device::createBuffer(const BufferCreateInfo& createInfo) const
 		throw std::runtime_error("Failed to allocate buffer memory");
 
 	vkBindBufferMemory(m_device, buffer, memory, 0);
-	m_allocatedMemory[buffer] = std::move(memory);
+	m_allocations.emplace_back(memory);
+	m_buffersAndImagesMemory[buffer] = m_allocations.size() - 1;
 
 	return buffer;
+}
+
+std::vector<VkBuffer> Device::createBuffers(const BufferCreateInfo& createInfo, size_t bufCount) const
+{
+	std::vector<VkBuffer> buffers(bufCount);
+	m_allocations.reserve(m_allocations.size() + bufCount);
+	m_buffersAndImagesMemory.reserve(m_buffersAndImagesMemory.size() + bufCount);
+
+	const VkBufferCreateInfo vkCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.size = createInfo.size,
+		.usage = createInfo.usage,
+		.sharingMode = createInfo.sharing,
+		.queueFamilyIndexCount = createInfo.queueFamilyIxCount,
+		.pQueueFamilyIndices = createInfo.queueFamilyIxs
+	};
+
+	for (size_t i = 0; i < bufCount; i++)
+		if (vkCreateBuffer(m_device, &vkCreateInfo, nullptr, &buffers[i]) != VK_SUCCESS)
+			throw std::runtime_error("Failed to create buffers");
+
+	VkMemoryRequirements memRequirements;
+	vkGetBufferMemoryRequirements(m_device, buffers[0], &memRequirements);
+
+	const VkMemoryAllocateInfo allocInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.allocationSize = memRequirements.size * bufCount,
+		.memoryTypeIndex = findMemoryType(
+			memRequirements.memoryTypeBits,
+			createInfo.memoryProperties
+		)
+	};
+
+	VkDeviceMemory allocation;
+	if (vkAllocateMemory(m_device, &allocInfo, nullptr, &allocation) != VK_SUCCESS)
+		throw std::runtime_error("Failed to allocate memory for buffers");
+
+	m_allocations.emplace_back(std::move(allocation));
+
+	VkDeviceSize offset = 0;
+	for (const auto& buffer : buffers)
+	{
+		vkBindBufferMemory(m_device, buffer, allocation, offset);
+		m_buffersAndImagesMemory[buffer] = m_allocations.size() - 1;
+		offset += createInfo.size;
+	}
+
+	return buffers;
 }
 
 Device::MappedMemory Device::mapBufferMemory(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) const
 {
 	MappedMemory retval{};
-	retval.memory = m_allocatedMemory[buffer];
+	const size_t memoryArrayIndex = m_buffersAndImagesMemory[buffer];
+	retval.memory = m_allocations[memoryArrayIndex];
 	vkMapMemory(m_device, retval.memory, offset, size, 0, &retval.ptr);
 
 	return retval;
@@ -326,6 +382,8 @@ bool Device::initialize(const InitInfo& info)
 
 VkShaderModule Device::createShaderModule(size_t codeSize, const uint32_t* pCode) const
 {
+	failIfNotInitialized();
+
 	const VkShaderModuleCreateInfo createInfo
 	{
 		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -342,14 +400,42 @@ VkShaderModule Device::createShaderModule(size_t codeSize, const uint32_t* pCode
 	return shaderModule;
 }
 
+VkDescriptorSetLayout Device::createDescriptorSetLayout(size_t bindingCount, const VkDescriptorSetLayoutBinding* pBindings) const
+{
+	failIfNotInitialized();
+
+	VkDescriptorSetLayout layout;
+
+	const VkDescriptorSetLayoutCreateInfo createInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.bindingCount = static_cast<uint32_t>(bindingCount),
+		.pBindings = pBindings
+	};
+
+	if (vkCreateDescriptorSetLayout(m_device, &createInfo, nullptr, &layout) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create a Descriptor Set Layout");
+
+	return layout;
+}
+
 void Device::destroy()
 {
 	if (!m_initialized)
 		return;
 
-	for (const auto& pair : m_allocatedMemory)
-		vkFreeMemory(m_device, pair.second, nullptr);
-
+	for (const auto& [_, allocationIx] : m_buffersAndImagesMemory)
+	{
+		auto& allocation = m_allocations[allocationIx];
+		if (allocation != nullptr)
+		{
+			vkFreeMemory(m_device, allocation, nullptr);
+			allocation = VK_NULL_HANDLE;
+		}
+	}
+		
 	vkDestroyDevice(m_device, nullptr);
 	m_initialized = false;
 }

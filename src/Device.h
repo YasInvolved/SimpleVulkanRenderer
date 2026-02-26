@@ -69,7 +69,9 @@ namespace svr
 		mutable ValueCache<VkPhysicalDeviceMemoryProperties> m_memProperties;
 		mutable ValueCache<std::vector<VkQueueFamilyProperties>> m_queueFamilies;
 
-		mutable std::unordered_map<void*, VkDeviceMemory> m_allocatedMemory;
+		// TODO: these 2 needs some attention, this can be probably optimized
+		mutable std::vector<VkDeviceMemory> m_allocations;
+		mutable std::unordered_map<void*, size_t> m_buffersAndImagesMemory;
 
 		bool m_initialized;
 
@@ -103,12 +105,16 @@ namespace svr
 		VkImageView createImageView(VkImage image, const ImageViewCreateInfo& createInfo) const;
 
 		VkBuffer createBuffer(const BufferCreateInfo& createInfo) const;
+		std::vector<VkBuffer> createBuffers(const BufferCreateInfo& createInfo, size_t bufCount) const;
+
+
 		MappedMemory mapBufferMemory(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) const;
 		void unmapBufferMemory(MappedMemory& memory) const;
 
 		CommandPool createCommandPool(uint32_t queueFamilyindex) const;
 
 		VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode) const;
+		VkDescriptorSetLayout createDescriptorSetLayout(size_t bindingCount, const VkDescriptorSetLayoutBinding* pBindings) const;
 
 		bool initialize(const InitInfo& info);
 		void destroy();
