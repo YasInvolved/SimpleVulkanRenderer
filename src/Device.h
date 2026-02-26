@@ -41,6 +41,24 @@ namespace svr
 			VkImageSubresourceRange subresourceRange;
 		};
 
+		struct BufferCreateInfo
+		{
+			VkDeviceSize size;
+			VkBufferUsageFlags usage;
+			VkSharingMode sharing;
+			uint32_t queueFamilyIxCount;
+			const uint32_t* queueFamilyIxs;
+			VkMemoryPropertyFlags memoryProperties;
+		};
+
+		struct MappedMemory
+		{
+			MappedMemory() : memory(VK_NULL_HANDLE), ptr(nullptr) {}
+
+			VkDeviceMemory memory;
+			void* ptr;
+		};
+
 	private:
 		VkPhysicalDevice m_physicalDevice;
 		VkDevice m_device;
@@ -51,7 +69,7 @@ namespace svr
 		mutable ValueCache<VkPhysicalDeviceMemoryProperties> m_memProperties;
 		mutable ValueCache<std::vector<VkQueueFamilyProperties>> m_queueFamilies;
 
-		mutable std::vector<VkDeviceMemory> m_allocatedMemory;
+		mutable std::unordered_map<void*, VkDeviceMemory> m_allocatedMemory;
 
 		bool m_initialized;
 
@@ -84,7 +102,13 @@ namespace svr
 		VkImage createImage(const VkImageCreateInfo& createInfo, VkMemoryPropertyFlags memoryProperties) const;
 		VkImageView createImageView(VkImage image, const ImageViewCreateInfo& createInfo) const;
 
+		VkBuffer createBuffer(const BufferCreateInfo& createInfo) const;
+		MappedMemory mapBufferMemory(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) const;
+		void unmapBufferMemory(MappedMemory& memory) const;
+
 		CommandPool createCommandPool(uint32_t queueFamilyindex) const;
+
+		VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode) const;
 
 		bool initialize(const InitInfo& info);
 		void destroy();

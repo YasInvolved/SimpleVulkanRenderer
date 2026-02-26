@@ -65,14 +65,10 @@ private:
 
 	// memory
 	VkBuffer m_stagingBuffer = VK_NULL_HANDLE;
-	VkDeviceMemory m_stagingBufferMemory = VK_NULL_HANDLE;
-	void* m_pStagingBuffer = VK_NULL_HANDLE;
+	svr::Device::MappedMemory m_stagingBufferMemory;
 
 	VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
-	VkDeviceMemory m_vertexBufferMemory = VK_NULL_HANDLE;
-
 	VkBuffer m_indexBuffer = VK_NULL_HANDLE;
-	VkDeviceMemory m_indexBufferMemory = VK_NULL_HANDLE;
 
 	// sync
 	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_imageAvailableSemaphores{ VK_NULL_HANDLE };
@@ -548,24 +544,6 @@ private:
 		m_transferCommandBuffer = *tmp.rbegin();
 	}
 
-	VkShaderModule createShaderModule(size_t codeSize, const uint32_t* pCode) const
-	{
-		const VkShaderModuleCreateInfo createInfo
-		{
-			.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0,
-			.codeSize = codeSize,
-			.pCode = pCode
-		};
-
-		VkShaderModule module;
-		if (vkCreateShaderModule(m_device->getDevice(), &createInfo, nullptr, &module) != VK_SUCCESS)
-			throw std::runtime_error("Failed to create a shader module");
-
-		return module;
-	}
-
 	void initPipeline()
 	{
 		const VkPushConstantRange pcRange =
@@ -589,8 +567,8 @@ private:
 		if (vkCreatePipelineLayout(m_device->getDevice(), &layoutCreateInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS)
 			throw std::runtime_error("Failed to create a pipeline layout");
 
-		VkShaderModule vertexShaderModule = createShaderModule(shaders::vert_code_size, (const uint32_t*)shaders::vert_code_start);
-		VkShaderModule fragmentShaderModule = createShaderModule(shaders::frag_code_size, (const uint32_t*)shaders::frag_code_start);
+		VkShaderModule vertexShaderModule = m_device->createShaderModule(shaders::vert_code_size, reinterpret_cast<const uint32_t*>(shaders::vert_code_start));
+		VkShaderModule fragmentShaderModule = m_device->createShaderModule(shaders::frag_code_size, reinterpret_cast<const uint32_t*>(shaders::frag_code_start));
 
 		const std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages
 		{
@@ -976,26 +954,32 @@ private:
 		const VkDeviceSize iBufSize = indices.size() * sizeof(uint32_t);
 		const VkDeviceSize sBufSize = std::max(vBufSize, iBufSize);
 
-		createBuffer(vBufSize,
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			m_vertexBuffer, m_vertexBufferMemory);
+		svr::Device::BufferCreateInfo bufferCreateInfo
+		{
+			.size = sBufSize,
+			.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			.sharing = VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIxCount = 1,
+			.queueFamilyIxs = &m_gfxQueueIx,
+			.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+		};
 
-		createBuffer(iBufSize,
-			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			m_indexBuffer, m_indexBufferMemory);
+		m_stagingBuffer = m_device->createBuffer(bufferCreateInfo);
 
-		createBuffer(sBufSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			m_stagingBuffer, m_stagingBufferMemory);
+		bufferCreateInfo.size = vBufSize;
+		bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		bufferCreateInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		m_vertexBuffer = m_device->createBuffer(bufferCreateInfo);
 
-		vkMapMemory(m_device->getDevice(), m_stagingBufferMemory, 0, sBufSize, 0, &m_pStagingBuffer);
-		std::memcpy(m_pStagingBuffer, vertices.data(), vBufSize);
+		bufferCreateInfo.size = iBufSize;
+		bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		m_indexBuffer = m_device->createBuffer(bufferCreateInfo);
+
+		m_stagingBufferMemory = m_device->mapBufferMemory(m_stagingBuffer, 0, sBufSize);
+		std::memcpy(m_stagingBufferMemory.ptr, vertices.data(), vBufSize);
 		copyBuffer(m_stagingBuffer, m_vertexBuffer, vBufSize);
 
-		std::memcpy(m_pStagingBuffer, indices.data(), iBufSize);
+		std::memcpy(m_stagingBufferMemory.ptr, indices.data(), iBufSize);
 		copyBuffer(m_stagingBuffer, m_indexBuffer, iBufSize);
 	}
 
@@ -1032,13 +1016,9 @@ private:
 		ImGui_ImplSDL3_Shutdown();
 		ImGui::DestroyContext();
 
-		vkUnmapMemory(device, m_stagingBufferMemory);
 		vkDestroyBuffer(device, m_indexBuffer, nullptr);
 		vkDestroyBuffer(device, m_vertexBuffer, nullptr);
 		vkDestroyBuffer(device, m_stagingBuffer, nullptr);
-		vkFreeMemory(device, m_indexBufferMemory, nullptr);
-		vkFreeMemory(device, m_vertexBufferMemory, nullptr);
-		vkFreeMemory(device, m_stagingBufferMemory, nullptr);
 
 		vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
 		vkDestroyImageView(device, m_depthImageView, nullptr);

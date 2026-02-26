@@ -174,10 +174,6 @@ VkImage Device::createImage(const VkImageCreateInfo& createInfo, VkMemoryPropert
 {
 	failIfNotInitialized();
 
-	const size_t oldSize = m_allocatedMemory.size();
-	const size_t newSize = oldSize + 1;
-	m_allocatedMemory.resize(newSize);
-
 	VkImage image;
 	if (vkCreateImage(m_device, &createInfo, nullptr, &image) != VK_SUCCESS)
 		throw std::runtime_error("Failed to create an image");
@@ -196,12 +192,15 @@ VkImage Device::createImage(const VkImageCreateInfo& createInfo, VkMemoryPropert
 		)
 	};
 
-	VkDeviceMemory* const ptr = m_allocatedMemory.data() + oldSize;
-	if (vkAllocateMemory(m_device, &allocInfo, nullptr, ptr) != VK_SUCCESS)
+	VkDeviceMemory memory;
+
+	if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) != VK_SUCCESS)
 		throw std::runtime_error("Failed to allocate image's memory");
 
-	if (vkBindImageMemory(m_device, image, *ptr, 0) != VK_SUCCESS)
+	if (vkBindImageMemory(m_device, image, memory, 0) != VK_SUCCESS)
 		throw std::runtime_error("Failed to bind memory to the image");
+
+	m_allocatedMemory[image] = std::move(memory);
 
 	return image;
 }
@@ -226,6 +225,62 @@ VkImageView Device::createImageView(VkImage image, const ImageViewCreateInfo& cr
 		throw std::runtime_error("Failed to create image view");
 
 	return view;
+}
+
+VkBuffer Device::createBuffer(const BufferCreateInfo& createInfo) const
+{
+	const VkBufferCreateInfo vkCreateInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.size = createInfo.size,
+		.usage = createInfo.usage,
+		.sharingMode = createInfo.sharing,
+		.queueFamilyIndexCount = createInfo.queueFamilyIxCount,
+		.pQueueFamilyIndices = createInfo.queueFamilyIxs
+	};
+
+	VkBuffer buffer;
+	if (vkCreateBuffer(m_device, &vkCreateInfo, nullptr, &buffer) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create a buffer");
+
+	VkMemoryRequirements memRequirements;
+	vkGetBufferMemoryRequirements(m_device, buffer, &memRequirements);
+
+	const VkMemoryAllocateInfo allocInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize = memRequirements.size,
+		.memoryTypeIndex = findMemoryType(
+			memRequirements.memoryTypeBits,
+			createInfo.memoryProperties
+		)
+	};
+
+	VkDeviceMemory memory;
+	if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) != VK_SUCCESS)
+		throw std::runtime_error("Failed to allocate buffer memory");
+
+	vkBindBufferMemory(m_device, buffer, memory, 0);
+	m_allocatedMemory[buffer] = std::move(memory);
+
+	return buffer;
+}
+
+Device::MappedMemory Device::mapBufferMemory(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) const
+{
+	MappedMemory retval{};
+	retval.memory = m_allocatedMemory[buffer];
+	vkMapMemory(m_device, retval.memory, offset, size, 0, &retval.ptr);
+
+	return retval;
+}
+
+void Device::unmapBufferMemory(MappedMemory& memory) const
+{
+	vkUnmapMemory(m_device, memory.memory);
+	memory.ptr = nullptr;
 }
 
 CommandPool Device::createCommandPool(uint32_t queueFamilyIndex) const
@@ -269,13 +324,31 @@ bool Device::initialize(const InitInfo& info)
 	return true;
 }
 
+VkShaderModule Device::createShaderModule(size_t codeSize, const uint32_t* pCode) const
+{
+	const VkShaderModuleCreateInfo createInfo
+	{
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.codeSize = codeSize,
+		.pCode = pCode,
+	};
+
+	VkShaderModule shaderModule;
+	if (vkCreateShaderModule(m_device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS)
+		throw std::runtime_error("Failed to create a shader module");
+
+	return shaderModule;
+}
+
 void Device::destroy()
 {
 	if (!m_initialized)
 		return;
 
-	for (auto memory : m_allocatedMemory)
-		vkFreeMemory(m_device, memory, nullptr);
+	for (const auto& pair : m_allocatedMemory)
+		vkFreeMemory(m_device, pair.second, nullptr);
 
 	vkDestroyDevice(m_device, nullptr);
 	m_initialized = false;
