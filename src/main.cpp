@@ -851,6 +851,9 @@ private:
 
 	void initDeviceMemory()
 	{
+		// Well, I guess this stuff can be optimized. Vertex, Index and Storage can be allocated in 1 large allocation,
+		// since all of them are located in device local memory, thus this function is probably going to be changed again soon
+
 		const VkImageCreateInfo diCreateInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
