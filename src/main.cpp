@@ -20,6 +20,14 @@ VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
 
+// TODO: as it gets more complex, move it to a separate header
+struct Light
+{
+	glm::vec3 position;
+	float radius;
+	glm::vec4 color;
+};
+
 class Application
 {
 private:
@@ -55,6 +63,10 @@ private:
 	VkDeviceMemory m_depthImageMemory = VK_NULL_HANDLE;
 	VkImageView m_depthImageView = VK_NULL_HANDLE;
 
+	// scene
+	std::vector<VkBuffer> m_storageBuffers;
+
+	// rendering
 	svr::CommandPool m_commandPool;
 	std::span<VkCommandBuffer> m_inFlightCmdBuffers;
 	VkCommandBuffer m_transferCommandBuffer;
@@ -106,19 +118,20 @@ public:
 private:
 	void initialize()
 	{
+		m_mesh = svr::Mesh::loadObjMesh(m_modelPath);
+
 		initWindow();
 		initVkInstance();
 		selectPhysicalDevice();
 		initDevice();
 		initSwapchain();
 		initSync();
-		initDeviceMemory();
 		initCmdPoolAndBuffers();
+		initDeviceMemory();
 		initPipeline();
 		initDescPool();
 		initImgui();
 		initCamera();
-		loadObj(m_modelPath);
 	}
 
 	void initWindow()
@@ -880,41 +893,60 @@ private:
 		};
 
 		m_depthImageView = m_device->createImageView(m_depthImage, viewCreateInfo);
-	}
-	
-	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory) const
-	{
-		VkDevice device = m_device->getDevice();
 
-		const VkBufferCreateInfo createInfo =
+		// storage buffer
+		VkDeviceSize storagePerFrameSize = 3 * sizeof(Light);
+		const VkDeviceSize alignment = m_device->getProperties().properties.limits.minStorageBufferOffsetAlignment;
+
+		if (storagePerFrameSize % alignment > 0)
+			storagePerFrameSize = ((storagePerFrameSize / alignment) + 1) * alignment;
+
+		const auto& vertices = m_mesh.getVertices();
+		const auto& indices = m_mesh.getIndices();
+
+		const VkDeviceSize vertexSize = vertices.size() * sizeof(svr::Mesh::Vertex);
+		const VkDeviceSize indexSize = indices.size() * sizeof(svr::Mesh::Index_t);
+		const VkDeviceSize stagingSize = std::max({ storagePerFrameSize, vertexSize, indexSize });
+
+		svr::Device::BufferCreateInfo bufCreateInfo =
 		{
-			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0,
-			.size = size,
-			.usage = usage,
-			.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			.queueFamilyIndexCount = 1,
-			.pQueueFamilyIndices = &m_gfxQueueIx,
+			.size = stagingSize, 
+			.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			.sharing = VK_SHARING_MODE_EXCLUSIVE,
+			.queueFamilyIxCount = 1,
+			.queueFamilyIxs = &m_gfxQueueIx,
+			.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 		};
 
-		if (vkCreateBuffer(device, &createInfo, nullptr, &buffer) != VK_SUCCESS)
-			throw std::runtime_error("Failed to create a buffer");
+		m_stagingBuffer = m_device->createBuffer(bufCreateInfo);
+		m_stagingBufferMemory = m_device->mapBufferMemory(m_stagingBuffer, 0, stagingSize);
+		void* stagingPtr = m_stagingBufferMemory.ptr;
 
-		VkMemoryRequirements requirements;
-		vkGetBufferMemoryRequirements(device, buffer, &requirements);
+		bufCreateInfo.size = vertexSize;
+		bufCreateInfo.usage = 0;
+		bufCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		bufCreateInfo.memoryProperties = 0;
+		bufCreateInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-		const VkMemoryAllocateInfo allocInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			.allocationSize = requirements.size,
-			.memoryTypeIndex = findMemoryType(requirements.memoryTypeBits, properties)
-		};
+		m_vertexBuffer = m_device->createBuffer(bufCreateInfo);
 
-		if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS)
-			throw std::runtime_error("Failed to allocate buffer's memory");
+		bufCreateInfo.size = indexSize;
+		bufCreateInfo.usage = 0;
+		bufCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 
-		vkBindBufferMemory(device, buffer, memory, 0);
+		m_indexBuffer = m_device->createBuffer(bufCreateInfo);
+
+		bufCreateInfo.size = storagePerFrameSize;
+		bufCreateInfo.usage = 0;
+		bufCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+		m_storageBuffers = m_device->createBuffers(bufCreateInfo, MAX_FRAMES_IN_FLIGHT);
+
+		std::memcpy(stagingPtr, vertices.data(), vertexSize);
+		copyBuffer(m_stagingBuffer, m_vertexBuffer, vertexSize);
+
+		std::memcpy(stagingPtr, indices.data(), indexSize);
+		copyBuffer(m_stagingBuffer, m_indexBuffer, indexSize);
 	}
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) const
@@ -940,47 +972,6 @@ private:
 		vkQueueWaitIdle(m_gfxQueue);
 
 		vkResetCommandBuffer(m_transferCommandBuffer, 0);
-	}
-
-	void loadObj(const std::string_view path)
-	{
-		m_mesh = svr::Mesh::loadObjMesh(path);
-
-		const auto& vertices = m_mesh.getVertices();
-		const auto& indices = m_mesh.getIndices();
-
-		// create buffers and copy data
-		const VkDeviceSize vBufSize = vertices.size() * sizeof(svr::Mesh::Vertex);
-		const VkDeviceSize iBufSize = indices.size() * sizeof(uint32_t);
-		const VkDeviceSize sBufSize = std::max(vBufSize, iBufSize);
-
-		svr::Device::BufferCreateInfo bufferCreateInfo
-		{
-			.size = sBufSize,
-			.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			.sharing = VK_SHARING_MODE_EXCLUSIVE,
-			.queueFamilyIxCount = 1,
-			.queueFamilyIxs = &m_gfxQueueIx,
-			.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-		};
-
-		m_stagingBuffer = m_device->createBuffer(bufferCreateInfo);
-
-		bufferCreateInfo.size = vBufSize;
-		bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-		bufferCreateInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-		m_vertexBuffer = m_device->createBuffer(bufferCreateInfo);
-
-		bufferCreateInfo.size = iBufSize;
-		bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-		m_indexBuffer = m_device->createBuffer(bufferCreateInfo);
-
-		m_stagingBufferMemory = m_device->mapBufferMemory(m_stagingBuffer, 0, sBufSize);
-		std::memcpy(m_stagingBufferMemory.ptr, vertices.data(), vBufSize);
-		copyBuffer(m_stagingBuffer, m_vertexBuffer, vBufSize);
-
-		std::memcpy(m_stagingBufferMemory.ptr, indices.data(), iBufSize);
-		copyBuffer(m_stagingBuffer, m_indexBuffer, iBufSize);
 	}
 
 	void initCamera()
@@ -1019,6 +1010,9 @@ private:
 		vkDestroyBuffer(device, m_indexBuffer, nullptr);
 		vkDestroyBuffer(device, m_vertexBuffer, nullptr);
 		vkDestroyBuffer(device, m_stagingBuffer, nullptr);
+
+		for (const auto& buffer : m_storageBuffers)
+			vkDestroyBuffer(device, buffer, nullptr);
 
 		vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
 		vkDestroyImageView(device, m_depthImageView, nullptr);

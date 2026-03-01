@@ -70,6 +70,8 @@ namespace svr
 
 	public:
 		Mesh();
+		
+		using Index_t = uint32_t;
 
 		static Mesh loadObjMesh(const std::string_view path);
 
