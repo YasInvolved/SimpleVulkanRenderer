@@ -2,6 +2,10 @@
 Well, this is my another very serious Vulkan project that I'm writing completely to improve myself at C++, Vulkan API and HLSL.
 I've made it public, because some people could use it as an useful reference when writing some Vulkan code.
 
+> [!IMPORTANT]
+> If you're intending to build this project, you'll need to install [NASM](https://nasm.dev/)
+> and [Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
+
 ## Things that I'm planning to implement here at the moment
 - Cook-Torrance BRDF
 - Blinn-Phong switchable alternative for Cook-Torrance (probably)
