@@ -18,6 +18,7 @@
 #include "CommandPool.h"
 #include "Camera.h"
 #include "Mesh.h"
+#include "Light.h"
 
 #define BITFIELD_TRUE(x, y) (x & y) == y
 
@@ -31,14 +32,6 @@ VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
 VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
-
-// TODO: as it gets more complex, move it to a separate header
-struct Light
-{
-	glm::vec3 position;
-	float radius;
-	glm::vec4 color;
-};
 
 struct PushConstants
 {
@@ -113,6 +106,20 @@ private:
 	VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
 
 	uint32_t m_currentFrame = 0;
+
+	std::array<svr::Light, 2> m_lights =
+	{
+		{
+			{
+				.positionAndRadius = glm::vec4(0.0f, 2.0f, -2.0f, 1.0f),
+				.colorAndIntensity = glm::vec4(1.0f, 1.0f, 0.0f, 150.0f)
+			},
+			{
+				.positionAndRadius = glm::vec4(0.0f, 0.0f, -6.0f, 5.0f),
+				.colorAndIntensity = glm::vec4(0.0f, 1.0f, 1.0f, 150.0f)
+			}
+		}
+	};
 
 	static constexpr std::array<VkPushConstantRange, 1> m_pushConstantsInfo =
 	{
@@ -927,7 +934,7 @@ private:
 		m_depthImageView = m_device->createImageView(m_depthImage, viewCreateInfo);
 
 		// storage buffer
-		VkDeviceSize storagePerFrameSize = 3 * sizeof(Light);
+		VkDeviceSize storagePerFrameSize = 3 * sizeof(svr::Light);
 		const VkDeviceSize alignment = m_device->getProperties().properties.limits.minStorageBufferOffsetAlignment;
 
 		if (storagePerFrameSize % alignment > 0)
@@ -1242,6 +1249,8 @@ private:
 		m_mesh.renderImGuiMenu();
 		m_camera.renderImGuiMenu();
 		ImGui::End();
+
+		svr::Light::renderLightControlsWindow(m_lights);
 
 		ImGui::Render();
 
