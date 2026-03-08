@@ -15,12 +15,12 @@
 
 // hardcoded material test
 static const float3 albedo = float3(1.0f, 0.86f, 0.57f);
-static const float metallic = 0.1f;
-static const float roughness = 0.4f;
+static const float metallic = 1.0f;
+static const float roughness = 0.2f;
 static const float ao = 1.0f;
 static const float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
 static const uint lightCount = 2u;
-static const float3 lightPositions[] = { float3(2.0f, 4.0f, 2.0f), float3(-2.0f, 4.0f, 2.0f) };
+static const float3 lightPositions[] = { float3(2.0f, 4.0f,-6.0f), float3(-2.0f, 4.0f, -6.0f) };
 static const float3 lightColors[] = { float3(1.0f, 0.8f, 0.6f), float3(0.6f, 0.8f, 1.0f) };
 static const float lightIntensities[] = { 150.0f, 150.0f };
 
@@ -33,7 +33,7 @@ float distGGX(float3 N, float3 H, float roughness)
     float denom = (NdotH2 * (a2 - 1.0f) + 1.0f);
     denom = PI * denom * denom;
 
-    return pow(a2, 4.0f) / denom;
+    return a2 / denom;
 }
 
 float schlickGGX(float NdotV, float roughness)
@@ -99,9 +99,7 @@ float4 PSMain(PSInput input) : SV_Target
 
     const float3 ambient = float3(0.03f, 0.03f, 0.03f) * albedo * ao;
     float3 color = ambient + Lo;
-
     color = color / (color + float3(1.0f, 1.0f, 1.0f));
-    color = pow(color, float3(1.0f / 2.2f, 1.0f / 2.2f, 1.0f / 2.2f));
-    
+  
     return float4(color, 1.0f);
 }

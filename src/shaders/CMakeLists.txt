@@ -50,5 +50,10 @@ add_custom_command(
 add_custom_target(shaders_target DEPENDS "${VERT_BIN}" "${FRAG_BIN}")
 
 add_library(SimpleVulkanRenderer_shaders OBJECT "${EMBED_ASM}" "${VERT_SRC}" "${FRAG_SRC}")
+set_target_properties(SimpleVulkanRenderer_shaders PROPERTIES
+	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shaders"
+	LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shaders"
+	ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shaders"
+)
 target_include_directories(SimpleVulkanRenderer_shaders PUBLIC cpp_include)
 add_dependencies(SimpleVulkanRenderer_shaders shaders_target)
