@@ -10,12 +10,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-struct PushConstants
-{
-    matrix mvp;
-};
-
-[[vk::push_constant]] PushConstants pc;
+#include "include/shared.hlsl"
 
 struct VSInput
 {
@@ -24,19 +19,18 @@ struct VSInput
     [[vk::location(2)]] float3 color : COLOR;
 };
 
-struct VSOutput
+PSInput VSMain(VSInput input)
 {
-    float4 pos : SV_Position;
-    float3 normal : NORMAL;
-    float3 color : COLOR;
-};
-
-VSOutput VSMain(VSInput input)
-{
-    VSOutput output;
+    PSInput output;
     float4 pos4 = float4(input.pos, 1.0f);
-    output.pos = mul(pc.mvp, pos4);
-    output.normal = input.normal;
+    const float4x4 mvp = mul(pc.vp, pc.model);
+    
+    output.pos = mul(mvp, pos4);
+
+    const float4 worldPos = mul(pc.model, float4(input.pos, 1.0f));
+    output.worldPos = worldPos.xyz;
+    
+    output.normal = normalize(mul((float3x3)pc.model, input.normal));
     output.color = input.color;
     
     return output;

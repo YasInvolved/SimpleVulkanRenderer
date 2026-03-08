@@ -40,6 +40,13 @@ struct Light
 	glm::vec4 color;
 };
 
+struct PushConstants
+{
+	glm::mat4 vp;
+	glm::mat4 model;
+	glm::vec3 cameraPos;
+};
+
 class Application
 {
 private:
@@ -107,7 +114,16 @@ private:
 
 	uint32_t m_currentFrame = 0;
 
-	glm::mat4 m_mvp;
+	static constexpr std::array<VkPushConstantRange, 1> m_pushConstantsInfo =
+	{
+		{
+			{
+				.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+				.offset = 0,
+				.size = sizeof(PushConstants)
+			},
+		}
+	};
 
 public:
 	Application(const std::string_view modelPath) 
@@ -445,6 +461,14 @@ private:
 		VkDevice device = m_device->getDevice();
 		volkLoadDevice(device);
 		vkGetDeviceQueue(device, m_gfxQueueIx, 0, &m_gfxQueue);
+
+		// check push constants size
+		const uint32_t maxPcSize = m_device->getProperties().properties.limits.maxPushConstantsSize;
+		for (const auto& pcInfo : m_pushConstantsInfo)
+		{
+			if (pcInfo.size >= maxPcSize)
+				throw std::runtime_error("CRITCAL: Push constant size exceeded. Please wait until it's fixed");
+		}
 	}
 
 	void initSwapchain()
@@ -571,13 +595,6 @@ private:
 
 	void initPipeline()
 	{
-		const VkPushConstantRange pcRange =
-		{
-			.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-			.offset = 0,
-			.size = sizeof(glm::mat4)
-		};
-
 		const VkPipelineLayoutCreateInfo layoutCreateInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -585,8 +602,8 @@ private:
 			.flags = 0,
 			.setLayoutCount = 0,
 			.pSetLayouts = nullptr,
-			.pushConstantRangeCount = 1,
-			.pPushConstantRanges = &pcRange,
+			.pushConstantRangeCount = static_cast<uint32_t>(m_pushConstantsInfo.size()),
+			.pPushConstantRanges = m_pushConstantsInfo.data(),
 		};
 
 		if (vkCreatePipelineLayout(m_device->getDevice(), &layoutCreateInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS)
@@ -670,7 +687,7 @@ private:
 			.rasterizerDiscardEnable = VK_FALSE,
 			.polygonMode = VK_POLYGON_MODE_FILL,
 			.cullMode = VK_CULL_MODE_BACK_BIT,
-			.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+			.frontFace = VK_FRONT_FACE_CLOCKWISE,
 			.depthBiasEnable = VK_FALSE,
 			.depthBiasConstantFactor = 0.0f,
 			.depthBiasClamp = 0.0f,
@@ -1008,8 +1025,6 @@ private:
 			if (sdlEvent.type == SDL_EVENT_QUIT)
 				m_isRunning = false;
 		}
-
-		m_mvp = m_camera.getViewProjection() * m_mesh.getModel();
 	}
 
 	void cleanup()
@@ -1173,7 +1188,8 @@ private:
 		vkCmdBindVertexBuffers(cmdBuf, 0, 1, &m_vertexBuffer, &VERTEX_BUFFER_OFFSET);
 		vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-		vkCmdPushConstants(cmdBuf, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &m_mvp);
+		PushConstants pc = { m_camera.getViewProjection(), m_mesh.getModel(), m_camera.getPos() };
+		vkCmdPushConstants(cmdBuf, m_pipelineLayout, m_pushConstantsInfo[0].stageFlags, m_pushConstantsInfo[0].offset, m_pushConstantsInfo[0].size, &pc);
 
 		vkCmdDrawIndexed(cmdBuf, m_mesh.getIndices().size(), 1, 0, 0, 0);
 

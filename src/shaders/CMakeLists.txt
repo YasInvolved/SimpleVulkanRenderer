@@ -50,5 +50,5 @@ add_custom_command(
 add_custom_target(shaders_target DEPENDS "${VERT_BIN}" "${FRAG_BIN}")
 
 add_library(SimpleVulkanRenderer_shaders OBJECT "${EMBED_ASM}" "${VERT_SRC}" "${FRAG_SRC}")
-target_include_directories(SimpleVulkanRenderer_shaders PUBLIC include)
+target_include_directories(SimpleVulkanRenderer_shaders PUBLIC cpp_include)
 add_dependencies(SimpleVulkanRenderer_shaders shaders_target)
