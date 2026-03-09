@@ -96,11 +96,11 @@ private:
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_ssbos;
 	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_frameData;
 	VkDeviceMemory m_vertexIndexMemory = VK_NULL_HANDLE;
-	VkDeviceMemory m_hostMemory = VK_NULL_HANDLE;
+	VkDeviceMemory m_stagingBufferMemory = VK_NULL_HANDLE;
+	VkDeviceMemory m_frameDataMemory = VK_NULL_HANDLE;
 
-	void* m_pHostMemory = nullptr;
 	void* m_pStagingBuffer = nullptr;
-	std::span<FrameData> m_frameDataSpan;
+	FrameData* m_pFrameData = nullptr;
 
 	VkDescriptorSetLayout m_pipeSetLayout = VK_NULL_HANDLE;
 	VkDescriptorPool m_pipePool = VK_NULL_HANDLE;
@@ -1156,31 +1156,23 @@ private:
 			m_device->assignObjectToMemory(m_vertexIndexMemory, m_indexBuffer, vertexRequirements.size);
 		}
 
-		const VkDeviceSize frameDataMemorySize = frameDataRequirements.size * MAX_FRAMES_IN_FLIGHT;
 		{
-			const VkDeviceSize alignment = std::max(frameDataRequirements.alignment, stagingRequirements.alignment);
-			VkDeviceSize totalHostSize = stagingRequirements.size + frameDataMemorySize;
-			if (totalHostSize % alignment > 0)
-				totalHostSize = ((totalHostSize / alignment) + 1) * alignment;
+			constexpr auto HOST_MEMORY_PROPERTIES = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+			m_stagingBufferMemory = m_device->allocateMemory(stagingRequirements.size, stagingRequirements.memoryTypeBits, HOST_MEMORY_PROPERTIES);
+			m_device->assignObjectToMemory(m_stagingBufferMemory, m_stagingBuffer, 0);
 
-			const auto typeFilter = stagingRequirements.memoryTypeBits | frameDataRequirements.memoryTypeBits;
-			m_hostMemory = m_device->allocateMemory(totalHostSize, typeFilter, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-			m_device->assignObjectToMemory(m_hostMemory, m_stagingBuffer, 0);
-			const VkDeviceSize stagingStride = ((stagingRequirements.size / alignment) + 1) * alignment;
-			const VkDeviceSize frameDataStride = ((frameDataPerFrameSize / alignment) + 1) * alignment;
-			VkDeviceSize offset = stagingStride;
-			for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			const VkDeviceSize totalFrameDataSize = frameDataRequirements.size * m_frameData.size();
+			m_frameDataMemory = m_device->allocateMemory(totalFrameDataSize, frameDataRequirements.memoryTypeBits, HOST_MEMORY_PROPERTIES);
+			VkDeviceSize offset = 0;
+			for (const auto buffer : m_frameData)
 			{
-				m_device->assignObjectToMemory(m_hostMemory, m_frameData[i], offset);
-				offset += frameDataStride;
+				m_device->assignObjectToMemory(m_frameDataMemory, buffer, offset);
+				offset += frameDataRequirements.size;
 			}
 
-			if (vkMapMemory(m_device->getDevice(), m_hostMemory, 0, totalHostSize, 0, &m_pHostMemory) != VK_SUCCESS)
-				throw std::runtime_error("Failed to map host memory");
-
-			m_pStagingBuffer = m_pHostMemory;
-			void* frameDataOffset = reinterpret_cast<char*>(m_pHostMemory) + stagingRequirements.size;
+			VkDevice device = m_device->getDevice();
+			vkMapMemory(device, m_stagingBufferMemory, 0, stagingSize, 0, &m_pStagingBuffer);
+			vkMapMemory(device, m_frameDataMemory, 0, totalFrameDataSize, 0, reinterpret_cast<void**>(&m_pFrameData));
 		}
 
 		std::memcpy(m_pStagingBuffer, vertices.data(), vertexSize);
@@ -1275,7 +1267,8 @@ private:
 		vkDestroySwapchainKHR(device, m_swapchain, nullptr);
 		SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
 		m_commandPool.destroy();
-		m_device->freeMemory(m_hostMemory);
+		m_device->freeMemory(m_frameDataMemory);
+		m_device->freeMemory(m_stagingBufferMemory);
 		m_device->freeMemory(m_vertexIndexMemory);
 		m_device->freeMemory(m_depthImageMemory);
 		m_device->destroy();
@@ -1288,10 +1281,10 @@ private:
 
 	void recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t imgIx)
 	{
-		auto& frameData = m_frameDataSpan[imgIx];
-		frameData.cameraPos = m_camera.getPos();
-		frameData.viewProjection = m_camera.getViewProjection();
-		frameData.lightCount = static_cast<uint32_t>(m_lights.size());
+		FrameData* frameData = m_pFrameData + imgIx;
+		frameData->cameraPos = m_camera.getPos();
+		frameData->viewProjection = m_camera.getViewProjection();
+		frameData->lightCount = static_cast<uint32_t>(m_lights.size());
 
 		const VkCommandBufferBeginInfo beginInfo =
 		{
