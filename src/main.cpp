@@ -35,9 +35,14 @@ VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
 
 struct PushConstants
 {
-	glm::mat4 vp;
 	glm::mat4 model;
+};
+
+struct FrameData
+{
+	glm::mat4 viewProjection;
 	glm::vec3 cameraPos;
+	uint32_t lightCount;
 };
 
 class Application
@@ -75,9 +80,6 @@ private:
 	VkDeviceMemory m_depthImageMemory = VK_NULL_HANDLE;
 	VkImageView m_depthImageView = VK_NULL_HANDLE;
 
-	// scene
-	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_storageBuffers;
-
 	// rendering
 	svr::CommandPool m_commandPool;
 	std::span<VkCommandBuffer> m_inFlightCmdBuffers;
@@ -87,15 +89,22 @@ private:
 	VkPipelineRenderingCreateInfo m_pipelineRenderingCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 	VkPipeline m_graphicsPipeline = VK_NULL_HANDLE;
 
-	// staging buffer
+	// memory
 	VkBuffer m_stagingBuffer = VK_NULL_HANDLE;
-	VkDeviceMemory m_stagingMemory = VK_NULL_HANDLE;
-	void* m_stagingBufferPtr = VK_NULL_HANDLE;
-
 	VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
 	VkBuffer m_indexBuffer = VK_NULL_HANDLE;
+	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_ssbos;
+	std::array<VkBuffer, MAX_FRAMES_IN_FLIGHT> m_frameData;
 	VkDeviceMemory m_vertexIndexMemory = VK_NULL_HANDLE;
-	VkDeviceMemory m_storageMemory = VK_NULL_HANDLE;
+	VkDeviceMemory m_hostMemory = VK_NULL_HANDLE;
+
+	void* m_pHostMemory = nullptr;
+	void* m_pStagingBuffer = nullptr;
+	std::span<FrameData> m_frameDataSpan;
+
+	VkDescriptorSetLayout m_pipeSetLayout = VK_NULL_HANDLE;
+	VkDescriptorPool m_pipePool = VK_NULL_HANDLE;
+	std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> m_pipeSets;
 
 	// sync
 	std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> m_imageAvailableSemaphores{ VK_NULL_HANDLE };
@@ -605,13 +614,49 @@ private:
 
 	void initPipeline()
 	{
+		{
+			constexpr std::array<VkDescriptorSetLayoutBinding, 2> bindings =
+			{
+				{
+					// UBO
+					{
+						.binding = 0,
+						.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+						.descriptorCount = 1,
+						.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+						.pImmutableSamplers = nullptr
+					},
+					// SSBO
+					{
+						.binding = 1,
+						.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+						.descriptorCount = 1,
+						.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+						.pImmutableSamplers = nullptr
+					}
+				}
+			};
+
+			const VkDescriptorSetLayoutCreateInfo layoutInfo =
+			{
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+				.pNext = nullptr,
+				.flags = 0,
+				.bindingCount = static_cast<uint32_t>(bindings.size()),
+				.pBindings = bindings.data()
+			};
+
+			if (vkCreateDescriptorSetLayout(m_device->getDevice(), &layoutInfo, nullptr, &m_pipeSetLayout) != VK_SUCCESS)
+				throw std::runtime_error("Failed to create descriptor set layout");
+		}
+
 		const VkPipelineLayoutCreateInfo layoutCreateInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 			.pNext = nullptr,
 			.flags = 0,
-			.setLayoutCount = 0,
-			.pSetLayouts = nullptr,
+			.setLayoutCount = 1,
+			.pSetLayouts = &m_pipeSetLayout,
 			.pushConstantRangeCount = static_cast<uint32_t>(m_pushConstantsInfo.size()),
 			.pPushConstantRanges = m_pushConstantsInfo.data(),
 		};
@@ -809,6 +854,87 @@ private:
 
 	void initDescPool()
 	{
+		{
+			constexpr std::array<VkDescriptorPoolSize, 2> poolSizes =
+			{
+				{
+					{
+						.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+						.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT)
+					},
+					{
+						.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+						.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT)
+					}
+				}
+			};
+
+			const VkDescriptorPoolCreateInfo ssboPoolInfo =
+			{
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+				.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+				.poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+				.pPoolSizes = poolSizes.data(),
+			};
+
+			if (vkCreateDescriptorPool(m_device->getDevice(), &ssboPoolInfo, nullptr, &m_pipePool) != VK_SUCCESS)
+				throw std::runtime_error("Failed to create descriptor pool for SSBO");
+
+			const VkDescriptorSetAllocateInfo allocateInfo =
+			{
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+				.pNext = nullptr,
+				.descriptorPool = m_pipePool,
+				.descriptorSetCount = MAX_FRAMES_IN_FLIGHT,
+				.pSetLayouts = &m_pipeSetLayout,
+			};
+
+			if (vkAllocateDescriptorSets(m_device->getDevice(), &allocateInfo, m_pipeSets.data()) != VK_SUCCESS)
+				throw std::runtime_error("Failed to allocate descriptor set");
+
+			for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			{
+				const VkDescriptorBufferInfo uboInfo
+				{
+					.buffer = m_frameData[i],
+					.offset = 0,
+					.range = sizeof(FrameData)
+				};
+
+				const VkDescriptorBufferInfo ssboInfo
+				{
+					.buffer = m_ssbos[i],
+					.offset = 0,
+					.range = sizeof(svr::Light) * m_lights.size()
+				};
+
+				const std::array<VkWriteDescriptorSet, 2> writes =
+				{
+					{
+						{
+							.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+							.dstSet = m_pipeSets[i],
+							.dstBinding = 0,
+							.dstArrayElement = 0,
+							.descriptorCount = 1,
+							.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+							.pBufferInfo = &uboInfo,
+						},
+						{
+							.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+							.dstSet = m_pipeSets[i],
+							.dstBinding = 1,
+							.dstArrayElement = 0,
+							.descriptorCount = 1,
+							.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+							.pBufferInfo = &ssboInfo
+						}
+					}
+				};
+			}
+		}
+
+		// imgui
 		static constexpr std::array<VkDescriptorPoolSize, 1> poolSizes = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE } };
 		VkDescriptorPoolCreateInfo poolInfo =
 		{
@@ -938,22 +1064,34 @@ private:
 
 		m_depthImageView = m_device->createImageView(m_depthImage, viewCreateInfo);
 
+		const auto& deviceProperties = m_device->getProperties().properties;
+
 		// storage buffer
 		VkDeviceSize storagePerFrameSize = m_lights.size() * sizeof(svr::Light);
-		const VkDeviceSize alignment = m_device->getProperties().properties.limits.minStorageBufferOffsetAlignment;
+		{
+			const VkDeviceSize alignment = deviceProperties.limits.minStorageBufferOffsetAlignment;
 
-		if (storagePerFrameSize % alignment > 0)
-			storagePerFrameSize = ((storagePerFrameSize / alignment) + 1) * alignment;
+			if (storagePerFrameSize % alignment > 0)
+				storagePerFrameSize = ((storagePerFrameSize / alignment) + 1) * alignment;
+		}
+
+		VkDeviceSize frameDataPerFrameSize = sizeof(FrameData);
+		{
+			const VkDeviceSize alignment = deviceProperties.limits.minUniformBufferOffsetAlignment;
+
+			if (frameDataPerFrameSize % alignment > 0)
+				frameDataPerFrameSize = ((frameDataPerFrameSize / alignment) + 1) * alignment;
+		}
 
 		const auto& vertices = m_mesh.getVertices();
 		const auto& indices = m_mesh.getIndices();
 
 		const VkDeviceSize vertexSize = vertices.size() * sizeof(svr::Mesh::Vertex);
 		const VkDeviceSize indexSize = indices.size() * sizeof(svr::Mesh::Index_t);
-		const VkDeviceSize stagingSize = std::max<VkDeviceSize>({ storagePerFrameSize, vertexSize, indexSize });
+		const VkDeviceSize stagingSize = std::max<VkDeviceSize>({ storagePerFrameSize, frameDataPerFrameSize, vertexSize, indexSize });
 
 		{
-			const std::array<svr::Device::BufferCreateInfo, 4> createInfos
+			const std::array<svr::Device::BufferCreateInfo, 5> createInfos
 			{
 				{
 					{
@@ -978,6 +1116,13 @@ private:
 						.queueFamilyIxs = &m_gfxQueueIx
 					},
 					{
+						.size = frameDataPerFrameSize,
+						.usage = VK_BUFFER_USAGE_2_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+						.sharing = VK_SHARING_MODE_EXCLUSIVE,
+						.queueFamilyIxCount = 1,
+						.queueFamilyIxs = &m_gfxQueueIx
+					},
+					{
 						.size = stagingSize,
 						.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 						.sharing = VK_SHARING_MODE_EXCLUSIVE,
@@ -991,14 +1136,16 @@ private:
 			m_indexBuffer = m_device->createBuffer(createInfos[1]);
 			for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 			{
-				m_storageBuffers[i] = m_device->createBuffer(createInfos[2]);
+				m_ssbos[i] = m_device->createBuffer(createInfos[2]);
+				m_frameData[i] = m_device->createBuffer(createInfos[3]);
 			}
-			m_stagingBuffer = m_device->createBuffer(createInfos[3]);
+			m_stagingBuffer = m_device->createBuffer(createInfos[4]);
 		}
 
 		auto vertexRequirements = m_device->getMemoryRequirements(m_vertexBuffer);
 		auto indexRequirements = m_device->getMemoryRequirements(m_indexBuffer);
-		auto storageRequirements = m_device->getMemoryRequirements(m_storageBuffers[0]);
+		auto storageRequirements = m_device->getMemoryRequirements(m_ssbos[0]);
+		auto frameDataRequirements = m_device->getMemoryRequirements(m_frameData[0]);
 		auto stagingRequirements = m_device->getMemoryRequirements(m_stagingBuffer);
 
 		{
@@ -1009,28 +1156,37 @@ private:
 			m_device->assignObjectToMemory(m_vertexIndexMemory, m_indexBuffer, vertexRequirements.size);
 		}
 
+		const VkDeviceSize frameDataMemorySize = frameDataRequirements.size * MAX_FRAMES_IN_FLIGHT;
 		{
-			const VkDeviceSize totalStorageSize = storageRequirements.size * MAX_FRAMES_IN_FLIGHT;
-			m_storageMemory = m_device->allocateMemory(totalStorageSize, storageRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			const VkDeviceSize alignment = std::max(frameDataRequirements.alignment, stagingRequirements.alignment);
+			VkDeviceSize totalHostSize = stagingRequirements.size + frameDataMemorySize;
+			if (totalHostSize % alignment > 0)
+				totalHostSize = ((totalHostSize / alignment) + 1) * alignment;
 
-			VkDeviceSize offset = 0;
+			const auto typeFilter = stagingRequirements.memoryTypeBits | frameDataRequirements.memoryTypeBits;
+			m_hostMemory = m_device->allocateMemory(totalHostSize, typeFilter, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+			m_device->assignObjectToMemory(m_hostMemory, m_stagingBuffer, 0);
+			const VkDeviceSize stagingStride = ((stagingRequirements.size / alignment) + 1) * alignment;
+			const VkDeviceSize frameDataStride = ((frameDataPerFrameSize / alignment) + 1) * alignment;
+			VkDeviceSize offset = stagingStride;
 			for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 			{
-				m_device->assignObjectToMemory(m_storageMemory, m_storageBuffers[i], offset);
-				offset += storageRequirements.size;
+				m_device->assignObjectToMemory(m_hostMemory, m_frameData[i], offset);
+				offset += frameDataStride;
 			}
+
+			if (vkMapMemory(m_device->getDevice(), m_hostMemory, 0, totalHostSize, 0, &m_pHostMemory) != VK_SUCCESS)
+				throw std::runtime_error("Failed to map host memory");
+
+			m_pStagingBuffer = m_pHostMemory;
+			void* frameDataOffset = reinterpret_cast<char*>(m_pHostMemory) + stagingRequirements.size;
 		}
 
-		m_stagingMemory = m_device->allocateMemory(stagingRequirements.size, stagingRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-		m_device->assignObjectToMemory(m_stagingMemory, m_stagingBuffer, 0);
-
-		if (vkMapMemory(m_device->getDevice(), m_stagingMemory, 0, stagingSize, 0, &m_stagingBufferPtr) != VK_SUCCESS)
-			throw std::runtime_error("Failed to map staging buffer");
-
-		std::memcpy(m_stagingBufferPtr, vertices.data(), vertexSize);
+		std::memcpy(m_pStagingBuffer, vertices.data(), vertexSize);
 		copyBuffer(m_stagingBuffer, m_vertexBuffer, vertexSize);
 
-		std::memcpy(m_stagingBufferPtr, indices.data(), indexSize);
+		std::memcpy(m_pStagingBuffer, indices.data(), indexSize);
 		copyBuffer(m_stagingBuffer, m_indexBuffer, indexSize);
 	}
 
@@ -1094,14 +1250,19 @@ private:
 		vkDestroyBuffer(device, m_vertexBuffer, nullptr);
 		vkDestroyBuffer(device, m_stagingBuffer, nullptr);
 
-		for (const auto& buffer : m_storageBuffers)
-			vkDestroyBuffer(device, buffer, nullptr);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			vkDestroyBuffer(device, m_frameData[i], nullptr);
+			vkDestroyBuffer(device, m_ssbos[i], nullptr);
+		}
 
 		vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
+		vkDestroyDescriptorPool(device, m_pipePool, nullptr);
 		vkDestroyImageView(device, m_depthImageView, nullptr);
 		vkDestroyImage(device, m_depthImage, nullptr);
 		vkDestroyPipeline(device, m_graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, m_pipelineLayout, nullptr);
+		vkDestroyDescriptorSetLayout(device, m_pipeSetLayout, nullptr);
 
 		for (uint32_t i = 0; i < m_swapchainImageCount; i++)
 		{
@@ -1114,8 +1275,7 @@ private:
 		vkDestroySwapchainKHR(device, m_swapchain, nullptr);
 		SDL_Vulkan_DestroySurface(m_pInstance, m_surface, nullptr);
 		m_commandPool.destroy();
-		m_device->freeMemory(m_stagingMemory);
-		m_device->freeMemory(m_storageMemory);
+		m_device->freeMemory(m_hostMemory);
 		m_device->freeMemory(m_vertexIndexMemory);
 		m_device->freeMemory(m_depthImageMemory);
 		m_device->destroy();
@@ -1128,6 +1288,11 @@ private:
 
 	void recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t imgIx)
 	{
+		auto& frameData = m_frameDataSpan[imgIx];
+		frameData.cameraPos = m_camera.getPos();
+		frameData.viewProjection = m_camera.getViewProjection();
+		frameData.lightCount = static_cast<uint32_t>(m_lights.size());
+
 		const VkCommandBufferBeginInfo beginInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1136,7 +1301,17 @@ private:
 		if (vkBeginCommandBuffer(cmdBuf, &beginInfo) != VK_SUCCESS)
 			throw std::runtime_error("Failed to begin recording a command buffer");
 
-		std::array<VkImageMemoryBarrier, 2> barriers =
+		const VkBufferCopy region =
+		{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = m_lights.size() * sizeof(svr::Light),
+		};
+
+		std::memcpy(m_pStagingBuffer, m_lights.data(), region.size);
+		vkCmdCopyBuffer(cmdBuf, m_stagingBuffer, m_ssbos[imgIx], 1, &region);
+
+		std::array<VkImageMemoryBarrier, 2> imageBarriers =
 		{
 			{
 				{
@@ -1174,21 +1349,47 @@ private:
 			}
 		};
 
+		const std::array<VkBufferMemoryBarrier, 1> bufferBarriers =
+		{
+			{
+				{
+					.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+					.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+					.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+					.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.buffer = m_ssbos[imgIx],
+					.offset = 0,
+					.size = VK_WHOLE_SIZE,
+				}
+			}
+		};
+
 		vkCmdPipelineBarrier(
 			cmdBuf,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			0, 0, nullptr, 0, nullptr, 1, &barriers[0]
+			0, 0, nullptr, 0, nullptr, 1, &imageBarriers[0]
+		);
+
+		vkCmdPipelineBarrier(
+			cmdBuf,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+			0,
+			0, nullptr,
+			static_cast<uint32_t>(bufferBarriers.size()), bufferBarriers.data(),
+			0, nullptr
 		);
 
 		vkCmdPipelineBarrier(
 			cmdBuf,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-			0, 0, nullptr, 0, nullptr, 1, &barriers[1]
+			0, 0, nullptr, 0, nullptr, 1, &imageBarriers[1]
 		);
 
-		std::array<VkRenderingAttachmentInfo, 2> attachmentInfos =
+		const std::array<VkRenderingAttachmentInfo, 2> attachmentInfos =
 		{
 			{
 				{
@@ -1245,7 +1446,7 @@ private:
 		vkCmdBindVertexBuffers(cmdBuf, 0, 1, &m_vertexBuffer, &VERTEX_BUFFER_OFFSET);
 		vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-		PushConstants pc = { m_camera.getViewProjection(), m_mesh.getModel(), m_camera.getPos() };
+		PushConstants pc = { m_mesh.getModel() };
 		vkCmdPushConstants(cmdBuf, m_pipelineLayout, m_pushConstantsInfo[0].stageFlags, m_pushConstantsInfo[0].offset, m_pushConstantsInfo[0].size, &pc);
 
 		vkCmdDrawIndexed(cmdBuf, m_mesh.getIndices().size(), 1, 0, 0, 0);
@@ -1255,16 +1456,16 @@ private:
 
 		vkCmdEndRendering(cmdBuf);
 
-		barriers[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		barriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		barriers[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		barriers[0].dstAccessMask = 0;
+		imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		imageBarriers[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		imageBarriers[0].dstAccessMask = 0;
 
 		vkCmdPipelineBarrier(
 			cmdBuf,
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-			0, 0, nullptr, 0, nullptr, 1, &barriers[0]
+			0, 0, nullptr, 0, nullptr, 1, &imageBarriers[0]
 		);
 
 		if (vkEndCommandBuffer(cmdBuf) != VK_SUCCESS)

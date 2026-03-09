@@ -19,10 +19,15 @@ static const float metallic = 1.0f;
 static const float roughness = 0.2f;
 static const float ao = 1.0f;
 static const float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
-static const uint lightCount = 2u;
-static const float3 lightPositions[] = { float3(2.0f, 4.0f,-6.0f), float3(-2.0f, 4.0f, -6.0f) };
-static const float3 lightColors[] = { float3(1.0f, 0.8f, 0.6f), float3(0.6f, 0.8f, 1.0f) };
-static const float lightIntensities[] = { 150.0f, 150.0f };
+
+struct Light
+{
+    float4 positionAndRadius;
+    float4 colorAndIntensity;
+};
+
+[[vk::binding(1, 0)]]
+StructuredBuffer<Light> LightBuffer;
 
 float distGGX(float3 N, float3 H, float roughness)
 {
@@ -65,15 +70,15 @@ float3 fresnelSchlick(float cosTheta, float3 F0)
 float4 PSMain(PSInput input) : SV_Target
 {
     float3 N = normalize(input.normal);
-    float3 V = normalize(pc.cameraPos - input.worldPos);
+    float3 V = normalize(cameraPos - input.worldPos);
 
     float3 Lo = float3(0.0f, 0.0f, 0.0f);
     
     for (uint i = 0; i < lightCount; i++)
     {
-        const float3 lightPos = lightPositions[i];
-        const float3 lightColor = lightColors[i];
-        const float intensity = lightIntensities[i];
+        const float3 lightPos = LightBuffer[i].positionAndRadius.xyz;
+        const float3 lightColor = LightBuffer[i].colorAndIntensity.xyz;
+        const float intensity = LightBuffer[i].colorAndIntensity.w;
 
         const float3 L = normalize(lightPos - input.worldPos);
         const float3 H = normalize(V + L);

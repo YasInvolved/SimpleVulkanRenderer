@@ -1,8 +1,16 @@
+[[vk::binding(0, 0)]]
+cbuffer FrameData
+{
+    float4x4 viewProjection;
+    float3 cameraPos;
+    uint lightCount;
+};
+
+// DEV WARNING: Binding 1, 0 is reserved for light array
+
 struct PushConstants
 {
-    float4x4 vp;
-    float4x4 model;
-    float3 cameraPos;
+    float4x4 modelMatrix;
 };
 
 [[vk::push_constant]] PushConstants pc;
