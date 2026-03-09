@@ -182,6 +182,70 @@ VkFence Device::createFence(bool signaled) const
 	return fence;
 }
 
+VkDeviceMemory Device::allocateMemory(VkDeviceSize size, uint32_t typeFilter, VkMemoryPropertyFlags memoryProperties) const
+{
+	const VkMemoryAllocateInfo info =
+	{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.allocationSize = size,
+		.memoryTypeIndex = findMemoryType(typeFilter, memoryProperties),
+	};
+
+	VkDeviceMemory memory;
+	VkResult result = vkAllocateMemory(m_device, &info, nullptr, &memory);
+	switch (result)
+	{
+	case VK_SUCCESS:
+		return memory;
+	case VK_ERROR_INVALID_EXTERNAL_HANDLE:
+		throw std::runtime_error("Failed to allocate memory. VK_ERROR_INVALID_EXTERNAL_HANDLE");
+	case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR:
+		throw std::runtime_error("Failed to allocate memory. VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR");
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+		throw std::runtime_error("Failed to allocate memory. Out of GPU memory");
+	case VK_ERROR_OUT_OF_HOST_MEMORY:
+		throw std::runtime_error("Failed to allocate memory. Out of Host memory");
+	default:
+		throw std::runtime_error("Failed to allocate memory. Unknown error");
+	}
+}
+
+bool Device::assignObjectToMemory(VkDeviceMemory memory, VkBuffer buffer, VkDeviceSize offset) const
+{
+	if (vkBindBufferMemory(m_device, buffer, memory, offset) != VK_SUCCESS)
+		return false;
+
+	return true;
+}
+
+bool Device::assignObjectToMemory(VkDeviceMemory memory, VkImage image, VkDeviceSize offset) const
+{
+	if (vkBindImageMemory(m_device, image, memory, offset) != VK_SUCCESS)
+		return false;
+
+	return true;
+}
+
+void Device::freeMemory(VkDeviceMemory memory) const
+{
+	vkFreeMemory(m_device, memory, nullptr);
+}
+
+VkMemoryRequirements Device::getMemoryRequirements(VkBuffer buffer) const
+{
+	VkMemoryRequirements requirements;
+	vkGetBufferMemoryRequirements(m_device, buffer, &requirements);
+	return requirements;
+}
+
+VkMemoryRequirements Device::getMemoryRequirements(VkImage image) const
+{
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements(m_device, image, &requirements);
+	return requirements;
+}
+
 VkImage Device::createImage(const VkImageCreateInfo& createInfo, VkMemoryPropertyFlags memoryProperties) const
 {
 	failIfNotInitialized();
@@ -189,31 +253,6 @@ VkImage Device::createImage(const VkImageCreateInfo& createInfo, VkMemoryPropert
 	VkImage image;
 	if (vkCreateImage(m_device, &createInfo, nullptr, &image) != VK_SUCCESS)
 		throw std::runtime_error("Failed to create an image");
-
-	VkMemoryRequirements memRequirements;
-	vkGetImageMemoryRequirements(m_device, image, &memRequirements);
-
-	const VkMemoryAllocateInfo allocInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.allocationSize = memRequirements.size,
-		.memoryTypeIndex = findMemoryType(
-			memRequirements.memoryTypeBits,
-			memoryProperties
-		)
-	};
-
-	VkDeviceMemory memory;
-
-	if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) != VK_SUCCESS)
-		throw std::runtime_error("Failed to allocate image's memory");
-
-	if (vkBindImageMemory(m_device, image, memory, 0) != VK_SUCCESS)
-		throw std::runtime_error("Failed to bind memory to the image");
-
-	m_allocations.emplace_back(std::move(memory));
-	m_buffersAndImagesMemory[image] = m_allocations.size() - 1;
 
 	return image;
 }
@@ -258,97 +297,7 @@ VkBuffer Device::createBuffer(const BufferCreateInfo& createInfo) const
 	if (vkCreateBuffer(m_device, &vkCreateInfo, nullptr, &buffer) != VK_SUCCESS)
 		throw std::runtime_error("Failed to create a buffer");
 
-	VkMemoryRequirements memRequirements;
-	vkGetBufferMemoryRequirements(m_device, buffer, &memRequirements);
-
-	const VkMemoryAllocateInfo allocInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.allocationSize = memRequirements.size,
-		.memoryTypeIndex = findMemoryType(
-			memRequirements.memoryTypeBits,
-			createInfo.memoryProperties
-		)
-	};
-
-	VkDeviceMemory memory;
-	if (vkAllocateMemory(m_device, &allocInfo, nullptr, &memory) != VK_SUCCESS)
-		throw std::runtime_error("Failed to allocate buffer memory");
-
-	vkBindBufferMemory(m_device, buffer, memory, 0);
-	m_allocations.emplace_back(memory);
-	m_buffersAndImagesMemory[buffer] = m_allocations.size() - 1;
-
 	return buffer;
-}
-
-std::vector<VkBuffer> Device::createBuffers(const BufferCreateInfo& createInfo, size_t bufCount) const
-{
-	std::vector<VkBuffer> buffers(bufCount);
-	m_allocations.reserve(m_allocations.size() + bufCount);
-	m_buffersAndImagesMemory.reserve(m_buffersAndImagesMemory.size() + bufCount);
-
-	const VkBufferCreateInfo vkCreateInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.size = createInfo.size,
-		.usage = createInfo.usage,
-		.sharingMode = createInfo.sharing,
-		.queueFamilyIndexCount = createInfo.queueFamilyIxCount,
-		.pQueueFamilyIndices = createInfo.queueFamilyIxs
-	};
-
-	for (size_t i = 0; i < bufCount; i++)
-		if (vkCreateBuffer(m_device, &vkCreateInfo, nullptr, &buffers[i]) != VK_SUCCESS)
-			throw std::runtime_error("Failed to create buffers");
-
-	VkMemoryRequirements memRequirements;
-	vkGetBufferMemoryRequirements(m_device, buffers[0], &memRequirements);
-
-	const VkMemoryAllocateInfo allocInfo
-	{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.allocationSize = memRequirements.size * bufCount,
-		.memoryTypeIndex = findMemoryType(
-			memRequirements.memoryTypeBits,
-			createInfo.memoryProperties
-		)
-	};
-
-	VkDeviceMemory allocation;
-	if (vkAllocateMemory(m_device, &allocInfo, nullptr, &allocation) != VK_SUCCESS)
-		throw std::runtime_error("Failed to allocate memory for buffers");
-
-	m_allocations.emplace_back(std::move(allocation));
-
-	VkDeviceSize offset = 0;
-	for (const auto& buffer : buffers)
-	{
-		vkBindBufferMemory(m_device, buffer, allocation, offset);
-		m_buffersAndImagesMemory[buffer] = m_allocations.size() - 1;
-		offset += createInfo.size;
-	}
-
-	return buffers;
-}
-
-Device::MappedMemory Device::mapBufferMemory(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) const
-{
-	MappedMemory retval{};
-	const size_t memoryArrayIndex = m_buffersAndImagesMemory[buffer];
-	retval.memory = m_allocations[memoryArrayIndex];
-	vkMapMemory(m_device, retval.memory, offset, size, 0, &retval.ptr);
-
-	return retval;
-}
-
-void Device::unmapBufferMemory(MappedMemory& memory) const
-{
-	vkUnmapMemory(m_device, memory.memory);
-	memory.ptr = nullptr;
 }
 
 CommandPool Device::createCommandPool(uint32_t queueFamilyIndex) const
@@ -437,16 +386,6 @@ void Device::destroy()
 {
 	if (!m_initialized)
 		return;
-
-	for (const auto& [_, allocationIx] : m_buffersAndImagesMemory)
-	{
-		auto& allocation = m_allocations[allocationIx];
-		if (allocation != nullptr)
-		{
-			vkFreeMemory(m_device, allocation, nullptr);
-			allocation = VK_NULL_HANDLE;
-		}
-	}
 		
 	vkDestroyDevice(m_device, nullptr);
 	m_initialized = false;

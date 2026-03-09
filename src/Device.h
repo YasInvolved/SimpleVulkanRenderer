@@ -60,15 +60,6 @@ namespace svr
 			VkSharingMode sharing;
 			uint32_t queueFamilyIxCount;
 			const uint32_t* queueFamilyIxs;
-			VkMemoryPropertyFlags memoryProperties;
-		};
-
-		struct MappedMemory
-		{
-			MappedMemory() : memory(VK_NULL_HANDLE), ptr(nullptr) {}
-
-			VkDeviceMemory memory;
-			void* ptr;
 		};
 
 	private:
@@ -80,10 +71,6 @@ namespace svr
 		mutable ValueCache<VkPhysicalDeviceFeatures2> m_features;
 		mutable ValueCache<VkPhysicalDeviceMemoryProperties> m_memProperties;
 		mutable ValueCache<std::vector<VkQueueFamilyProperties>> m_queueFamilies;
-
-		// TODO: these 2 needs some attention, this can be probably optimized
-		mutable std::vector<VkDeviceMemory> m_allocations;
-		mutable std::unordered_map<void*, size_t> m_buffersAndImagesMemory;
 
 		bool m_initialized;
 
@@ -113,15 +100,17 @@ namespace svr
 		VkSemaphore createSemaphore() const;
 		VkFence createFence(bool signaled = false) const;
 
+		// memory
+		VkDeviceMemory allocateMemory(VkDeviceSize size, uint32_t typeFilter, VkMemoryPropertyFlags memoryProperties) const;
+		bool assignObjectToMemory(VkDeviceMemory memory, VkBuffer buffer, VkDeviceSize offset) const;
+		bool assignObjectToMemory(VkDeviceMemory memory, VkImage image, VkDeviceSize offset) const;
+		void freeMemory(VkDeviceMemory memory) const;
+		VkMemoryRequirements getMemoryRequirements(VkBuffer buffer) const;
+		VkMemoryRequirements getMemoryRequirements(VkImage image) const;
+
 		VkImage createImage(const VkImageCreateInfo& createInfo, VkMemoryPropertyFlags memoryProperties) const;
 		VkImageView createImageView(VkImage image, const ImageViewCreateInfo& createInfo) const;
-
-		VkBuffer createBuffer(const BufferCreateInfo& createInfo) const;
-		std::vector<VkBuffer> createBuffers(const BufferCreateInfo& createInfo, size_t bufCount) const;
-
-
-		MappedMemory mapBufferMemory(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size) const;
-		void unmapBufferMemory(MappedMemory& memory) const;
+		VkBuffer createBuffer(const BufferCreateInfo& createInfo) const;		
 
 		CommandPool createCommandPool(uint32_t queueFamilyindex) const;
 
