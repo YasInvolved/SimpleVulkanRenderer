@@ -94,7 +94,9 @@ private:
 	void* m_pSceneStagingBuffer = nullptr;
 
 	// per-frame memory
-	VkBuffer m_ubos;
+	VkDeviceSize m_alignedUboSize = 0;
+	VkDeviceSize m_alignedSsboSize = 0;
+	VkBuffer m_ubos; // CHAD BUFFER
 	VkBuffer m_ssbos = VK_NULL_HANDLE; // CHAD BUFFER
 	VkBuffer m_perFrameStagingBuffer = VK_NULL_HANDLE;
 	std::array<VkImage, MAX_FRAMES_IN_FLIGHT> m_zBuffers;
@@ -759,7 +761,13 @@ private:
 			}
 		}
 
-		const VkDeviceSize ubosSize = sizeof(FrameData) * MAX_FRAMES_IN_FLIGHT;
+		const auto& deviceLimits = m_device->getProperties().properties.limits;
+
+		m_alignedUboSize = sizeof(FrameData);
+		if (m_alignedUboSize % deviceLimits.minUniformBufferOffsetAlignment > 0)
+			m_alignedUboSize = ((m_alignedUboSize / deviceLimits.minUniformBufferOffsetAlignment) + 1) * deviceLimits.minUniformBufferOffsetAlignment;
+
+		const VkDeviceSize ubosSize = m_alignedUboSize * MAX_FRAMES_IN_FLIGHT;
 
 		const svr::Device::BufferCreateInfo uboCreateInfo =
 		{
@@ -779,7 +787,11 @@ private:
 
 		vkMapMemory(device, m_ubosMemory, 0, ubosSize, 0, &m_pUbos);
 
-		const VkDeviceSize ssbosSize = m_lights.size() * sizeof(svr::Light) * MAX_FRAMES_IN_FLIGHT;
+		m_alignedSsboSize = m_lights.size() * sizeof(svr::Light);
+		if (m_alignedSsboSize % deviceLimits.minStorageBufferOffsetAlignment > 0)
+			m_alignedSsboSize = ((m_alignedSsboSize / deviceLimits.minStorageBufferOffsetAlignment) + 1) * deviceLimits.minStorageBufferOffsetAlignment;
+
+		const VkDeviceSize ssbosSize = m_alignedSsboSize * MAX_FRAMES_IN_FLIGHT;
 
 		const svr::Device::BufferCreateInfo ssbosCreateInfo =
 		{
@@ -854,6 +866,55 @@ private:
 
 		if (vkAllocateDescriptorSets(device, &setAllocInfo, &m_perFrameDescriptorSet) != VK_SUCCESS)
 			throw std::runtime_error("Failed to allocate per-frame descriptor sets");
+
+		const std::array<VkDescriptorBufferInfo, 2> bufferInfos =
+		{
+			{
+				{
+					.buffer = m_ubos,
+					.offset = 0,
+					.range = m_alignedUboSize
+				},
+				{
+					.buffer = m_ssbos,
+					.offset = 0,
+					.range = m_alignedSsboSize
+				}
+			}
+		};
+
+		const std::array<VkWriteDescriptorSet, 2> writes =
+		{
+			{
+				{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.pNext = nullptr,
+					.dstSet = m_perFrameDescriptorSet,
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+					.pBufferInfo = &bufferInfos[0]
+				},
+				{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.pNext = nullptr,
+					.dstSet = m_perFrameDescriptorSet,
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+					.pBufferInfo = &bufferInfos[1]
+				}
+			}
+		};
+
+		vkUpdateDescriptorSets(
+			device,
+			static_cast<uint32_t>(writes.size()),
+			writes.data(),
+			0, nullptr
+		);
 	}
 
 	void initPipeline()
@@ -1240,14 +1301,8 @@ private:
 		vkDestroyBuffer(device, m_sceneStagingBuffer, nullptr);
 		m_device->freeMemory(m_sceneStagingBufferMemory);
 
-		//VkBuffer m_ubos;
-		//VkBuffer m_ssbos = VK_NULL_HANDLE; // CHAD BUFFER
-		//VkBuffer m_perFrameStagingBuffer = VK_NULL_HANDLE;
-		//std::array<VkImage, MAX_FRAMES_IN_FLIGHT> m_zBuffers;
-		//std::array<VkImageView, MAX_FRAMES_IN_FLIGHT> m_zBufferViews;
-
-		vkFreeDescriptorSets(device, m_perFrameDescriptorPool, 1, &m_perFrameDescriptorSet);
 		vkDestroyDescriptorPool(device, m_perFrameDescriptorPool, nullptr);
+		vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
@@ -1289,7 +1344,7 @@ private:
 
 	void recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t imgIx)
 	{
-		FrameData* frameData = reinterpret_cast<FrameData*>(m_pUbos) + imgIx;
+		FrameData* frameData = reinterpret_cast<FrameData*>(reinterpret_cast<char*>(m_pUbos) + (imgIx * m_alignedUboSize));
 		frameData->cameraPos = m_camera.getPos();
 		frameData->viewProjection = m_camera.getViewProjection();
 		frameData->lightCount = static_cast<uint32_t>(m_lights.size());
@@ -1448,6 +1503,20 @@ private:
 		constexpr VkDeviceSize VERTEX_BUFFER_OFFSET = 0ull;
 		vkCmdBindVertexBuffers(cmdBuf, 0, 1, &m_vertexBuffer, &VERTEX_BUFFER_OFFSET);
 		vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+		const uint32_t offsets[] = {
+			static_cast<uint32_t>(m_alignedUboSize * imgIx),
+			static_cast<uint32_t>(m_alignedSsboSize * imgIx)
+		};
+
+		vkCmdBindDescriptorSets(
+			cmdBuf,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			m_pipelineLayout,
+			0, 1,
+			&m_perFrameDescriptorSet,
+			2, offsets
+		);
 
 		PushConstants pc = { m_mesh.getModel() };
 		vkCmdPushConstants(cmdBuf, m_pipelineLayout, m_pushConstantsInfo[0].stageFlags, m_pushConstantsInfo[0].offset, m_pushConstantsInfo[0].size, &pc);
