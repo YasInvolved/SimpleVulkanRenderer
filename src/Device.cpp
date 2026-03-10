@@ -246,7 +246,7 @@ VkMemoryRequirements Device::getMemoryRequirements(VkImage image) const
 	return requirements;
 }
 
-VkImage Device::createImage(const VkImageCreateInfo& createInfo, VkMemoryPropertyFlags memoryProperties) const
+VkImage Device::createImage(const VkImageCreateInfo& createInfo) const
 {
 	failIfNotInitialized();
 

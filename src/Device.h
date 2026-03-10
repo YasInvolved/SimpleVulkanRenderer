@@ -108,7 +108,7 @@ namespace svr
 		VkMemoryRequirements getMemoryRequirements(VkBuffer buffer) const;
 		VkMemoryRequirements getMemoryRequirements(VkImage image) const;
 
-		VkImage createImage(const VkImageCreateInfo& createInfo, VkMemoryPropertyFlags memoryProperties) const;
+		VkImage createImage(const VkImageCreateInfo& createInfo) const;
 		VkImageView createImageView(VkImage image, const ImageViewCreateInfo& createInfo) const;
 		VkBuffer createBuffer(const BufferCreateInfo& createInfo) const;		
 
