@@ -23,14 +23,14 @@ PSInput VSMain(VSInput input)
 {
     PSInput output;
     float4 pos4 = float4(input.pos, 1.0f);
-    const float4x4 mvp = mul(pc.vp, pc.model);
+    const float4x4 mvp = mul(viewProjection, pc.modelMatrix);
     
     output.pos = mul(mvp, pos4);
 
-    const float4 worldPos = mul(pc.model, float4(input.pos, 1.0f));
+    const float4 worldPos = mul(pc.modelMatrix, float4(input.pos, 1.0f));
     output.worldPos = worldPos.xyz;
     
-    output.normal = normalize(mul((float3x3)pc.model, input.normal));
+    output.normal = normalize(mul((float3x3)pc.modelMatrix, input.normal));
     output.color = input.color;
     
     return output;
