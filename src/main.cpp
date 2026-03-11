@@ -96,17 +96,15 @@ private:
 	// per-frame memory
 	VkDeviceSize m_alignedUboSize = 0;
 	VkDeviceSize m_alignedSsboSize = 0;
-	VkBuffer m_ubos; // CHAD BUFFER
+	VkBuffer m_ubos = VK_NULL_HANDLE; // CHAD BUFFER
 	VkBuffer m_ssbos = VK_NULL_HANDLE; // CHAD BUFFER
-	VkBuffer m_perFrameStagingBuffer = VK_NULL_HANDLE;
 	std::array<VkImage, MAX_FRAMES_IN_FLIGHT> m_zBuffers;
 	std::array<VkImageView, MAX_FRAMES_IN_FLIGHT> m_zBufferViews;
 	VkDeviceMemory m_zBuffersMemory = VK_NULL_HANDLE;
 	VkDeviceMemory m_ubosMemory = VK_NULL_HANDLE;
 	VkDeviceMemory m_ssbosMemory = VK_NULL_HANDLE;
-	VkDeviceMemory m_perFrameStagingBufferMemory = VK_NULL_HANDLE;
-	void* m_pPerFrameStagingBuffer = nullptr;
 	void* m_pUbos = nullptr;
+	void* m_pSsbos = nullptr;
 
 	// per-frame descriptor pool and sets
 	VkDescriptorSetLayout m_perFrameDescriptorSetLayout = VK_NULL_HANDLE;
@@ -802,30 +800,17 @@ private:
 			.queueFamilyIxs = &m_gfxQueueIx
 		};
 
-		const svr::Device::BufferCreateInfo perFrameStagingCreateInfo =
-		{
-			.size = ssbosSize,
-			.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			.sharing = VK_SHARING_MODE_EXCLUSIVE,
-			.queueFamilyIxCount = 1,
-			.queueFamilyIxs = &m_gfxQueueIx
-		};
-
 		m_ssbos = m_device->createBuffer(ssbosCreateInfo);
-		m_perFrameStagingBuffer = m_device->createBuffer(perFrameStagingCreateInfo);
 
 		VkMemoryRequirements ssbosRequirements;
 		VkMemoryRequirements stagingRequirements;
 		vkGetBufferMemoryRequirements(device, m_ssbos, &ssbosRequirements);
-		vkGetBufferMemoryRequirements(device, m_perFrameStagingBuffer, &stagingRequirements);
 
-		m_ssbosMemory = m_device->allocateMemory(ssbosRequirements.size, ssbosRequirements.memoryTypeBits, DEVICE_LOCAL_MEMORY_PROPERTIES);
-		m_perFrameStagingBufferMemory = m_device->allocateMemory(stagingRequirements.size, stagingRequirements.memoryTypeBits, HOST_VISIBLE_MEMORY_PROPERTIES);
+		m_ssbosMemory = m_device->allocateMemory(ssbosRequirements.size, ssbosRequirements.memoryTypeBits, HOST_VISIBLE_MEMORY_PROPERTIES);
 		m_device->assignObjectToMemory(m_ssbosMemory, m_ssbos, 0);
-		m_device->assignObjectToMemory(m_perFrameStagingBufferMemory, m_perFrameStagingBuffer, 0);
 
-		// map staging buffer
-		vkMapMemory(device, m_perFrameStagingBufferMemory, 0, ssbosSize, 0, &m_pPerFrameStagingBuffer);
+		// map ssbo
+		vkMapMemory(device, m_ssbosMemory, 0, ssbosSize, 0, &m_pSsbos);
 
 		// descriptor pool and sets
 		constexpr std::array<VkDescriptorPoolSize, 2> poolSizes =
@@ -1299,6 +1284,7 @@ private:
 		vkDestroyBuffer(device, m_indexBuffer, nullptr);
 		m_device->freeMemory(m_sceneDeviceLocalMemory);
 		vkDestroyBuffer(device, m_sceneStagingBuffer, nullptr);
+		vkUnmapMemory(device, m_sceneStagingBufferMemory);
 		m_device->freeMemory(m_sceneStagingBufferMemory);
 
 		vkDestroyDescriptorPool(device, m_perFrameDescriptorPool, nullptr);
@@ -1311,11 +1297,11 @@ private:
 		}
 
 		vkFreeMemory(device, m_zBuffersMemory, nullptr);
-
-		vkDestroyBuffer(device, m_perFrameStagingBuffer, nullptr);
+	
 		vkDestroyBuffer(device, m_ssbos, nullptr);
 		vkDestroyBuffer(device, m_ubos, nullptr);
-		vkFreeMemory(device, m_perFrameStagingBufferMemory, nullptr);
+		vkUnmapMemory(device, m_ssbosMemory);
+		vkUnmapMemory(device, m_ubosMemory);
 		vkFreeMemory(device, m_ssbosMemory, nullptr);
 		vkFreeMemory(device, m_ubosMemory, nullptr);
 
@@ -1344,10 +1330,16 @@ private:
 
 	void recordCommandBuffer(VkCommandBuffer cmdBuf, uint32_t imgIx)
 	{
-		FrameData* frameData = reinterpret_cast<FrameData*>(reinterpret_cast<char*>(m_pUbos) + (imgIx * m_alignedUboSize));
+		const VkDeviceSize uboOffset = imgIx * m_alignedUboSize;
+		const VkDeviceSize ssboOffset = imgIx * m_alignedSsboSize;
+
+		FrameData* frameData = reinterpret_cast<FrameData*>(reinterpret_cast<char*>(m_pUbos) + uboOffset);
 		frameData->cameraPos = m_camera.getPos();
 		frameData->viewProjection = m_camera.getViewProjection();
 		frameData->lightCount = static_cast<uint32_t>(m_lights.size());
+
+		void* lightArrayPtr = reinterpret_cast<char*>(m_pSsbos) + ssboOffset;
+		std::memcpy(lightArrayPtr, m_lights.data(), sizeof(svr::Light) * m_lights.size());
 
 		const VkCommandBufferBeginInfo beginInfo =
 		{
@@ -1356,18 +1348,6 @@ private:
 
 		if (vkBeginCommandBuffer(cmdBuf, &beginInfo) != VK_SUCCESS)
 			throw std::runtime_error("Failed to begin recording a command buffer");
-
-		const VkDeviceSize lightArraySize = m_lights.size() * sizeof(svr::Light);
-		const VkDeviceSize ssboBufferOffset = lightArraySize * imgIx;
-		const VkBufferCopy region =
-		{
-			.srcOffset = 0,
-			.dstOffset = ssboBufferOffset,
-			.size = lightArraySize,
-		};
-
-		std::memcpy(m_pPerFrameStagingBuffer, m_lights.data(), region.size);
-		vkCmdCopyBuffer(cmdBuf, m_perFrameStagingBuffer, m_ssbos, 1, &region);
 
 		std::array<VkImageMemoryBarrier, 2> imageBarriers =
 		{
@@ -1407,44 +1387,18 @@ private:
 			}
 		};
 
-		const std::array<VkBufferMemoryBarrier, 1> bufferBarriers =
-		{
-			{
-				{
-					.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-					.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-					.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-					.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-					.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-					.buffer = m_ssbos,
-					.offset = ssboBufferOffset,
-					.size = lightArraySize,
-				}
-			}
-		};
+		vkCmdPipelineBarrier(
+			cmdBuf,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &imageBarriers[1]
+		);
 
 		vkCmdPipelineBarrier(
 			cmdBuf,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			0, 0, nullptr, 0, nullptr, 1, &imageBarriers[0]
-		);
-
-		vkCmdPipelineBarrier(
-			cmdBuf,
-			VK_PIPELINE_STAGE_TRANSFER_BIT,
-			VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-			0,
-			0, nullptr,
-			static_cast<uint32_t>(bufferBarriers.size()), bufferBarriers.data(),
-			0, nullptr
-		);
-
-		vkCmdPipelineBarrier(
-			cmdBuf,
-			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-			0, 0, nullptr, 0, nullptr, 1, &imageBarriers[1]
 		);
 
 		const std::array<VkRenderingAttachmentInfo, 2> attachmentInfos =
@@ -1505,8 +1459,8 @@ private:
 		vkCmdBindIndexBuffer(cmdBuf, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 		const uint32_t offsets[] = {
-			static_cast<uint32_t>(m_alignedUboSize * imgIx),
-			static_cast<uint32_t>(m_alignedSsboSize * imgIx)
+			static_cast<uint32_t>(uboOffset),
+			static_cast<uint32_t>(ssboOffset)
 		};
 
 		vkCmdBindDescriptorSets(
