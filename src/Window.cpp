@@ -63,6 +63,12 @@ void Window::handleEvents()
 		case SDL_EVENT_WINDOW_RESTORED:
 			m_minimized = false;
 			break;
+		case SDL_EVENT_KEY_DOWN:
+			m_inputHandler(true, event.key.repeat, event.key.scancode);
+			break;
+		case SDL_EVENT_KEY_UP:
+			m_inputHandler(false, event.key.repeat, event.key.scancode);
+			break;
 		}
 	}
 }

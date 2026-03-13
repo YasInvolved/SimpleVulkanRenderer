@@ -38,6 +38,8 @@ namespace svr
 		const glm::vec3& getPos() const { return m_pos; }
 		void setPos(const glm::vec3& pos) { m_pos = pos; }
 		void setPos(float x, float y, float z) { m_pos = { x, y, z }; }
+		void move(const glm::vec3& vec) { m_pos += vec; }
+		void move(float x, float y, float z) { m_pos += glm::vec3{ x, y, z }; }
 
 		const glm::vec3& getLookingAt() const { return m_lookingAt; }
 		void setLookingAt(const glm::vec3& lookingAt) { m_lookingAt = lookingAt; }

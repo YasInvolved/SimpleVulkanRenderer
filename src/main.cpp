@@ -51,6 +51,8 @@ private:
 	const std::string_view m_modelPath;
 	bool m_isRunning = true;
 
+	using clock_t = std::chrono::high_resolution_clock;
+
 	svr::Window::window_ptr m_window;
 
 	VkInstance m_pInstance = VK_NULL_HANDLE;
@@ -122,6 +124,7 @@ private:
 	VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
 
 	uint32_t m_currentFrame = 0;
+	float m_deltaTime = 0.0f;
 
 	std::array<svr::Light, 2> m_lights =
 	{
@@ -157,8 +160,13 @@ public:
 	{
 		initialize();
 
+		auto lastTime = clock_t::now();
 		while (m_isRunning)
 		{
+			auto currentTime = clock_t::now();
+			m_deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
+			lastTime = currentTime;
+
 			update();
 			render();
 		}
@@ -170,6 +178,12 @@ private:
 	void initialize()
 	{
 		m_window = svr::Window::Get();
+		m_window->setKeyboardInputHandler([this](bool down, bool repeat, SDL_Scancode scancode)
+			{
+				inputHandler(down, repeat, scancode);
+			}
+		);
+
 		m_mesh = svr::Mesh::loadObjMesh(m_modelPath);
 
 		initVkInstance();
@@ -1491,7 +1505,9 @@ private:
 
 		if (m_window->isResized())
 		{
-
+			createSwapchain();
+			m_window->setResized(false);
+			return;
 		}
 
 		VkDevice device = m_device->getDevice();
@@ -1561,6 +1577,31 @@ private:
 			throw std::runtime_error("Failed to present an image");
 
 		m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+	}
+
+	void inputHandler(bool down, bool repeat, SDL_Scancode scancode)
+	{
+		if (!down)
+			return;
+
+		constexpr float CAMERA_MOVEMENT_SPEED = 0.5f;
+		const float currentMovementSpeed = CAMERA_MOVEMENT_SPEED * m_deltaTime;
+
+		switch (scancode)
+		{
+		case SDL_SCANCODE_A:
+			m_camera.move(-CAMERA_MOVEMENT_SPEED, 0.0f, 0.0f);
+			break;
+		case SDL_SCANCODE_S:
+			m_camera.move(0.0f, 0.0f, -CAMERA_MOVEMENT_SPEED);
+			break;
+		case SDL_SCANCODE_D:
+			m_camera.move(CAMERA_MOVEMENT_SPEED, 0.0f, 0.0f);
+			break;
+		case SDL_SCANCODE_W:
+			m_camera.move(0.0f, 0.0f, CAMERA_MOVEMENT_SPEED);
+			break;
+		}
 	}
 
 	static VkBool32 DebugMessengerCallback(
