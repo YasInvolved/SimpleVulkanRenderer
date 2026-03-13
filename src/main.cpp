@@ -11,9 +11,8 @@
 // SOFTWARE.
 
 #include <shaders.h>
-#include <backends/imgui_impl_vulkan.h>
-#include <backends/imgui_impl_sdl3.h>
 
+#include "Window.h"
 #include "Device.h"
 #include "CommandPool.h"
 #include "Camera.h"
@@ -52,7 +51,7 @@ private:
 	const std::string_view m_modelPath;
 	bool m_isRunning = true;
 
-	SDL_Window* m_pWindow = nullptr;
+	svr::Window::window_ptr m_window;
 
 	VkInstance m_pInstance = VK_NULL_HANDLE;
 
@@ -170,13 +169,13 @@ public:
 private:
 	void initialize()
 	{
+		m_window = svr::Window::Get();
 		m_mesh = svr::Mesh::loadObjMesh(m_modelPath);
 
-		initWindow();
 		initVkInstance();
 		selectPhysicalDevice();
 		initDevice();
-		initSwapchain();
+		createSwapchain();
 		initSync();
 		initCmdPoolAndBuffers();
 		initSceneResources();
@@ -185,27 +184,6 @@ private:
 		initDescPool();
 		initImgui();
 		initCamera();
-	}
-
-	void initWindow()
-	{
-		SDL_Init(SDL_INIT_VIDEO);
-
-		SDL_DisplayID primaryId = SDL_GetPrimaryDisplay();
-		const char* pdName = SDL_GetDisplayName(primaryId);
-		const auto* pdMode = SDL_GetCurrentDisplayMode(primaryId);
-
-		fmt::print("Primary display detected:\n\tName: {}\n\tResolution: {}x{}\n\tRefresh Rate: {}hz\n\n",
-			pdName, pdMode->w, pdMode->h, pdMode->refresh_rate
-		);
-
-		int windowResW = pdMode->w * 0.75f;
-		int windowResH = pdMode->h * 0.75f;
-
-		fmt::print("Creating a {}x{} window on primary display\n", windowResW, windowResH);
-		m_pWindow = SDL_CreateWindow("SimpleVulkanRenderer", windowResW, windowResH, SDL_WINDOW_VULKAN /* | SDL_WINDOW_RESIZABLE*/);
-		if (m_pWindow == nullptr)
-			throw std::runtime_error("Failed to create window");
 	}
 
 	void initVkInstance()
@@ -496,14 +474,23 @@ private:
 		}
 	}
 
-	void initSwapchain()
+	void createSwapchain()
 	{
 		VkDevice device = m_device->getDevice();
+		vkDeviceWaitIdle(device);
 
-		if (!SDL_Vulkan_CreateSurface(m_pWindow, m_pInstance, nullptr, &m_surface))
-			throw std::runtime_error("Failed to create a surface");
+		if (m_surface == VK_NULL_HANDLE)
+			m_surface = m_window->createSurface(m_pInstance);
 
-		auto& sfCaps = m_device->getSurfaceCapabilities(m_surface);
+		if (m_swapchain != VK_NULL_HANDLE)
+		{
+			vkDestroySwapchainKHR(device, m_swapchain, nullptr);
+
+			for (const auto imageView : m_swapchainImageViews)
+				vkDestroyImageView(device, imageView, nullptr);
+		}
+
+		auto sfCaps = m_device->getSurfaceCapabilities(m_surface);
 		auto sfFormats = m_device->getSurfaceFormats(m_surface);
 		auto sfPms = m_device->getPresentModes(m_surface);
 
@@ -541,7 +528,7 @@ private:
 			.queueFamilyIndices = &m_gfxQueueIx,
 			.transform = sfCaps.currentTransform,
 			.presentMode = m_currentPresentMode,
-			.oldSwapchain = VK_NULL_HANDLE
+			.oldSwapchain = nullptr
 		};
 
 		m_swapchain = m_device->createSwapchain(createInfo);
@@ -1204,7 +1191,7 @@ private:
 					throw std::runtime_error("Failed to initialize imgui");
 			};
 
-		checkImguiResult(ImGui_ImplSDL3_InitForVulkan(m_pWindow));
+		checkImguiResult(m_window->initImgui());
 		checkImguiResult(ImGui_ImplVulkan_Init(&initInfo));
 	}
 
@@ -1258,16 +1245,13 @@ private:
 		m_camera.setFov(70u);
 		m_camera.setAspectRatio(aspect);
 	}
-
+	
 	void update()
 	{
-		SDL_Event sdlEvent;
-		while (SDL_PollEvent(&sdlEvent))
-		{
-			ImGui_ImplSDL3_ProcessEvent(&sdlEvent);
-			if (sdlEvent.type == SDL_EVENT_QUIT)
-				m_isRunning = false;
-		}
+		m_window->handleEvents();
+
+		if (m_window->shouldClose())
+			m_isRunning = false;
 	}
 
 	void cleanup()
@@ -1324,7 +1308,6 @@ private:
 		vkDestroyDebugUtilsMessengerEXT(m_pInstance, m_debugMsger, nullptr);
 		vkDestroyInstance(m_pInstance, nullptr);
 
-		SDL_DestroyWindow(m_pWindow);
 		SDL_Quit();
 	}
 
@@ -1500,6 +1483,17 @@ private:
 
 	void render()
 	{
+		if (m_window->isMinimized())
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			return;
+		}
+
+		if (m_window->isResized())
+		{
+
+		}
+
 		VkDevice device = m_device->getDevice();
 
 		static constexpr uint64_t WAIT_TIMEOUT = UINT64_MAX;
@@ -1508,8 +1502,11 @@ private:
 		uint32_t imgIx;
 		VkResult result = vkAcquireNextImageKHR(device, m_swapchain, WAIT_TIMEOUT, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &imgIx);
 
-		if (result == VK_ERROR_OUT_OF_DATE_KHR)
-			throw std::runtime_error("Not implemented");
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+		{
+			createSwapchain();
+			return;
+		}
 		else if (result != VK_SUCCESS)
 			throw std::runtime_error("Failed to acquire next image");
 
@@ -1560,9 +1557,7 @@ private:
 		};
 
 		result = vkQueuePresentKHR(m_gfxQueue, &presentInfo);
-		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
-			throw std::runtime_error("Not implemented");
-		else if (result != VK_SUCCESS)
+		if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR && result != VK_ERROR_OUT_OF_DATE_KHR)
 			throw std::runtime_error("Failed to present an image");
 
 		m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;

@@ -14,7 +14,7 @@ set(OUT_DIR ${CMAKE_BINARY_DIR}/bin)
 
 add_subdirectory(shaders EXCLUDE_FROM_ALL)
 
-add_executable(SimpleVulkanRenderer main.cpp "pch.h" "Camera.h" "Mesh.h" "mesh.cpp" "Device.h" "Device.cpp" "ValueCache.h" "CommandPool.h" "CommandPool.cpp" "Light.h")
+add_executable(SimpleVulkanRenderer main.cpp "pch.h" "Camera.h" "Mesh.h" "mesh.cpp" "Device.h" "Device.cpp" "ValueCache.h" "CommandPool.h" "CommandPool.cpp" "Light.h" "Window.h" "Window.cpp")
 
 set_target_properties(SimpleVulkanRenderer PROPERTIES
 	CXX_STANDARD 20

@@ -66,7 +66,6 @@ namespace svr
 		VkPhysicalDevice m_physicalDevice;
 		VkDevice m_device;
 
-		mutable ValueCache<VkSurfaceCapabilitiesKHR> m_surfaceCapabilities;
 		mutable ValueCache<VkPhysicalDeviceProperties2> m_properties;
 		mutable ValueCache<VkPhysicalDeviceFeatures2> m_features;
 		mutable ValueCache<VkPhysicalDeviceMemoryProperties> m_memProperties;
@@ -88,7 +87,7 @@ namespace svr
 
 		const std::vector<VkExtensionProperties> getExtensionProperties() const;
 
-		const VkSurfaceCapabilitiesKHR& getSurfaceCapabilities(VkSurfaceKHR surface) const;
+		VkSurfaceCapabilitiesKHR getSurfaceCapabilities(VkSurfaceKHR surface) const;
 		const VkPhysicalDeviceProperties2& getProperties() const;
 		const VkPhysicalDeviceFeatures2& getFeatures() const;
 		const VkPhysicalDeviceMemoryProperties& getMemoryProperties() const;

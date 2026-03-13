@@ -31,20 +31,15 @@ const std::vector<VkExtensionProperties> Device::getExtensionProperties() const
 	return extensions;
 }
 
-const VkSurfaceCapabilitiesKHR& Device::getSurfaceCapabilities(VkSurfaceKHR surface) const
+VkSurfaceCapabilitiesKHR Device::getSurfaceCapabilities(VkSurfaceKHR surface) const
 {
-	if (!m_surfaceCapabilities.isEmpty())
-		return m_surfaceCapabilities.getValue();
-
-	auto& value = m_surfaceCapabilities.getValue();
-
-	VkResult res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, surface, &value);
+	VkSurfaceCapabilitiesKHR capabilities;
+	VkResult res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, surface, &capabilities);
 
 	if (res != VK_SUCCESS)
 		throw std::runtime_error("Failed to get surface capabilities from the device");
 
-	m_surfaceCapabilities.forceUnsetEmpty();
-	return value;
+	return capabilities;
 }
 
 const VkPhysicalDeviceProperties2& Device::getProperties() const

@@ -18,6 +18,7 @@
 #include <array>
 #include <algorithm>
 #include <chrono>
+#include <thread>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -32,6 +33,8 @@
 #include <tiny_obj_loader.h>
 
 #include <imgui.h>
+#include <backends/imgui_impl_vulkan.h>
+#include <backends/imgui_impl_sdl3.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
